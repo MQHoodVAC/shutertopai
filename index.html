@@ -1,0 +1,3518 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>CyberArena 3D — Онлайн Шутер</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Three.js r128 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        * {
+            user-select: none;
+            -webkit-user-select: none;
+            box-sizing: border-box;
+        }
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #050811;
+            font-family: 'Inter', sans-serif;
+            color: #f8fafc;
+        }
+        .font-cyber {
+            font-family: 'Orbitron', sans-serif;
+        }
+        #game-canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        /* Прицел в центре экрана */
+        .crosshair-line {
+            position: absolute;
+            background-color: #00f3ff;
+            box-shadow: 0 0 6px #00f3ff;
+            transition: all 0.08s ease-out;
+        }
+        /* Эффект получения урона */
+        #damage-overlay {
+            pointer-events: none;
+            transition: opacity 0.25s ease-out;
+            background: radial-gradient(circle, transparent 45%, rgba(239, 68, 68, 0.65) 100%);
+        }
+        /* Скроллбар для модальных окон */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0f172a;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #06b6d4;
+            border-radius: 3px;
+        }
+        .cyber-card {
+            background: rgba(15, 23, 42, 0.88);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(6, 182, 212, 0.35);
+            box-shadow: 0 0 30px rgba(6, 182, 212, 0.15);
+        }
+    </style>
+</head>
+<body class="relative w-full h-full overflow-hidden">
+
+    <!-- 3D Сцена -->
+    <canvas id="game-canvas"></canvas>
+
+    <!-- Эффект ранения (красная виньетка) -->
+    <div id="damage-overlay" class="fixed inset-0 opacity-0 z-10"></div>
+
+    <!-- Прицел (Crosshair) и Хитмаркер -->
+    <div id="crosshair-container" class="fixed inset-0 pointer-events-none flex items-center justify-center z-20">
+        <div class="relative w-8 h-8 flex items-center justify-center">
+                    <!-- Центральная точка -->
+            <div class="w-1 h-1 bg-amber-300 rounded-full shadow-[0_0_6px_#fbbf24]"></div>
+            <!-- Линии прицела -->
+            <div id="ch-top" class="crosshair-line w-0.5 h-2.5 -top-1"></div>
+            <div id="ch-bottom" class="crosshair-line w-0.5 h-2.5 -bottom-1"></div>
+            <div id="ch-left" class="crosshair-line h-0.5 w-2.5 -left-1"></div>
+            <div id="ch-right" class="crosshair-line h-0.5 w-2.5 -right-1"></div>
+            <!-- Хитмаркер (крестик при попадании) -->
+            <div id="hit-marker" class="opacity-0 transition-opacity duration-75 relative w-6 h-6 flex items-center justify-center">
+                <div id="hm-line-1" class="absolute w-5 h-0.5 bg-red-500 rotate-45 shadow-[0_0_8px_#ef4444]"></div>
+                <div id="hm-line-2" class="absolute w-5 h-0.5 bg-red-500 -rotate-45 shadow-[0_0_8px_#ef4444]"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Боевой интерфейс (HUD) -->
+    <div id="hud-layer" class="fixed inset-0 pointer-events-none z-20 flex flex-col justify-between p-3 sm:p-5">
+        <!-- Верхняя панель: Статус комнаты, Таблица лидеров и Киллфид -->
+        <div class="flex justify-between items-start gap-4">
+            <!-- Инфо о комнате и быстрые кнопки -->
+            <div class="flex flex-col gap-2 pointer-events-auto">
+                <div class="cyber-card rounded-xl px-3.5 py-2 flex items-center gap-3">
+                    <div class="flex items-center gap-2">
+                        <span id="net-status-dot" class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                        <span class="text-xs font-semibold uppercase tracking-wider text-slate-300">Комната:</span>
+                        <span id="hud-room-name" class="font-cyber text-sm font-bold text-cyan-400">ARENA-1</span>
+                    </div>
+                    <button id="btn-copy-room" title="Скопировать ID комнаты" class="text-xs bg-slate-800 hover:bg-slate-700 text-cyan-300 px-2 py-1 rounded border border-cyan-500/30 transition">
+                        <i class="fa-regular fa-copy"></i>
+                    </button>
+                </div>
+
+                <!-- Панель быстрого управления ботами и меню -->
+                <div class="flex flex-wrap items-center gap-2">
+                    <button id="btn-toggle-bots" class="cyber-card hover:bg-cyan-950/60 text-xs font-semibold text-cyan-300 px-3 py-1.5 rounded-lg transition flex items-center gap-1.5">
+                        <i class="fa-solid fa-robot"></i>
+                        <span id="bots-count-label">Боты: 3</span>
+                    </button>
+                    <button id="btn-open-menu" class="cyber-card hover:bg-slate-800 text-xs font-semibold text-slate-200 px-3 py-1.5 rounded-lg transition flex items-center gap-1.5">
+                        <i class="fa-solid fa-bars"></i>
+                        <span>Меню (ESC)</span>
+                    </button>
+                    <button id="btn-open-guide" class="cyber-card hover:bg-indigo-950/70 text-xs font-semibold text-indigo-300 px-3 py-1.5 rounded-lg transition flex items-center gap-1.5">
+                        <i class="fa-solid fa-cloud-arrow-up"></i>
+                        <span>Как захостить бесплатно</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Правая колонка: Таблица лидеров и лог убийств -->
+            <div class="flex flex-col items-end gap-2 w-56 sm:w-64">
+                <div class="cyber-card rounded-xl p-3 w-full">
+                    <div class="flex items-center justify-between border-b border-slate-700/80 pb-1.5 mb-2">
+                        <span class="font-cyber text-xs font-bold text-cyan-400 tracking-wider">ЛИДЕРЫ АРЕНЫ</span>
+                        <span class="text-[10px] text-slate-400">УБ / СМ</span>
+                    </div>
+                    <div id="scoreboard-list" class="flex flex-col gap-1 text-xs max-h-36 overflow-y-auto">
+                        <!-- Заполняется скриптом -->
+                    </div>
+                </div>
+        <!-- Нижняя панель: Здоровье, Стамина и Оружие АК-47 -->
+        <div class="flex justify-between items-end gap-4">
+            <!-- Блок здоровья и Выносливости (Стамины) -->
+            <div class="cyber-card rounded-2xl p-3.5 sm:px-5 sm:py-4 w-60 sm:w-80">
+                <div class="flex justify-between items-baseline mb-1">
+                    <span class="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                        <i class="fa-solid fa-heart-pulse text-rose-500"></i> Здоровье
+                    </span>
+                    <span id="hud-hp-text" class="font-cyber text-2xl sm:text-3xl font-black text-emerald-400">100</span>
+                </div>
+                <div class="w-full h-2.5 bg-slate-800 rounded-full overflow-hidden p-0.5 mb-2.5">
+                    <div id="hud-hp-bar" class="h-full bg-gradient-to-r from-emerald-500 to-cyan-400 rounded-full transition-all duration-150" style="width: 100%;"></div>
+                </div>
+
+                <!-- Полоска Стамины (Выносливости для бега) -->
+                <div class="flex justify-between items-center mb-1">
+                    <span class="text-[11px] font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+                        <i class="fa-solid fa-bolt"></i> Выносливость (Бег)
+                    </span>
+                    <span id="hud-stamina-status" class="font-cyber text-[11px] font-bold text-amber-300">100%</span>
+                </div>
+                <div class="w-full h-2 bg-slate-800 rounded-full overflow-hidden p-0.5">
+                    <div id="hud-stamina-bar" class="h-full bg-gradient-to-r from-amber-500 to-yellow-300 rounded-full transition-all duration-75" style="width: 100%;"></div>
+                </div>
+
+                <div class="flex justify-between text-[11px] text-slate-400 mt-2">
+                    <span>Боец: <strong id="hud-player-name" class="text-slate-200">КиберБоец</strong></span>
+                    <span id="sprint-indicator" class="text-cyan-400">[SHIFT] Спринт</span>
+                </div>
+            </div>
+
+            <!-- Мобильные кнопки управления (видны только на тач-экранах) -->
+            <div id="mobile-controls" class="hidden pointer-events-auto gap-2 items-center">
+                <button id="btn-mobile-jump" class="w-12 h-12 rounded-full bg-slate-800/80 border border-cyan-500/40 text-cyan-300 font-bold active:bg-cyan-600">ПРЫЖ</button>
+                <button id="btn-mobile-reload" class="w-12 h-12 rounded-full bg-slate-800/80 border border-amber-500/40 text-amber-300 font-bold active:bg-amber-600">R</button>
+                <button id="btn-mobile-shoot" class="w-16 h-16 rounded-full bg-rose-600/80 border-2 border-rose-400 text-white font-bold active:scale-95">ОГОНЬ</button>
+            </div>
+
+            <!-- Блок оружия и патронов АК-47 -->
+            <div class="cyber-card rounded-2xl p-3.5 sm:px-5 sm:py-4 w-56 sm:w-68 text-right">
+                <div class="flex justify-between items-center mb-1">
+                    <span class="text-xs font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+                        <i class="fa-solid fa-rifle"></i> АК-47 «КАЛАШ» 7.62мм
+                    </span>
+                    <span class="text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/40 px-1.5 py-0.5 rounded font-cyber">АВТО</span>
+                </div>
+                <div class="flex items-baseline justify-end gap-1.5">
+                    <span id="hud-ammo-current" class="font-cyber text-2xl sm:text-3xl font-black text-white">30</span>
+                    <span class="text-slate-500 font-cyber text-lg">/</span>
+                    <span id="hud-ammo-max" class="font-cyber text-base text-slate-400">∞</span>
+                </div>
+                <div class="flex justify-end items-center gap-2 mt-1.5 text-[11px] text-slate-400">
+                    <span id="reload-hint">[R] Сменить рожок</span>
+                    <span>•</span>
+                    <span>[Зажать ЛКМ] Очередь</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Главное меню / Лобби (Поверх игры при старте или паузе) -->
+    <div id="lobby-modal" class="fixed inset-0 z-30 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
+        <div class="cyber-card rounded-3xl max-w-xl w-full p-6 sm:p-8 border border-cyan-500/40 relative my-auto">
+            <!-- Заголовок -->
+            <div class="flex items-center justify-between mb-6">
+                <div>
+                    <div class="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-300 text-xs font-semibold mb-2">
+                        <span class="w-2 h-2 rounded-full bg-cyan-400 animate-ping"></span>
+                        THREE.JS + МУЛЬТИПЛЕЕР В РЕАЛЬНОМ ВРЕМЕНИ
+                    </div>
+                    <h1 class="font-cyber text-2xl sm:text-3xl font-black tracking-wide text-white">
+                        CYBER<span class="text-cyan-400">ARENA</span> 3D
+                    </h1>
+                </div>
+                <div class="w-12 h-12 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-center text-cyan-400 text-2xl">
+                    <i class="fa-solid fa-gun"></i>
+                </div>
+            </div>
+
+            <!-- Форма входа в комнату -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">Ваш позывной (Никнейм)</label>
+                    <input id="input-nickname" type="text" maxlength="16" placeholder="Например: Сталкер77"
+                        class="w-full bg-slate-900/90 border border-slate-700 focus:border-cyan-400 rounded-xl px-3.5 py-2.5 text-sm text-white outline-none transition">
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold uppercase tracking-wider text-slate-300 mb-1.5">ID Комнаты (для игры с друзьями)</label>
+                    <input id="input-room" type="text" maxlength="20" value="ARENA-1"
+                        class="w-full bg-slate-900/90 border border-slate-700 focus:border-cyan-400 rounded-xl px-3.5 py-2.5 text-sm font-cyber text-cyan-300 uppercase outline-none transition">
+                </div>
+            </div>
+
+            <!-- Настройки матча -->
+            <div class="bg-slate-900/70 border border-slate-800 rounded-2xl p-4 mb-6">
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                    <div class="flex items-center gap-3">
+                        <i class="fa-solid fa-robot text-cyan-400 text-lg"></i>
+                        <div>
+                            <div class="text-sm font-semibold text-white">Тренировочные ИИ-боты</div>
+                            <div class="text-xs text-slate-400">Боты патрулируют арену и ведут огонь, даже если вы один в комнате</div>
+                        </div>
+                    </div>
+                    <select id="select-bots" class="bg-slate-800 border border-slate-700 text-cyan-300 text-xs font-bold rounded-xl px-3 py-2 outline-none">
+                        <option value="0">0 ботов (Только игроки)</option>
+                        <option value="2">2 бота</option>
+                        <option value="3" selected>3 бота (Рекомендуется)</option>
+                        <option value="5">5 ботов (Мясорубка)</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Справка по управлению -->
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-6 text-center">
+                <div class="bg-slate-900/60 border border-slate-800/90 rounded-xl p-2.5">
+                    <div class="font-cyber text-xs font-bold text-cyan-400">W A S D</div>
+                    <div class="text-[11px] text-slate-400 mt-0.5">Перемещение</div>
+                </div>
+                <div class="bg-slate-900/60 border border-slate-800/90 rounded-xl p-2.5">
+                    <div class="font-cyber text-xs font-bold text-cyan-400">ЛКМ / ПКМ</div>
+                    <div class="text-[11px] text-slate-400 mt-0.5">Огонь / Прицел</div>
+                </div>
+                <div class="bg-slate-900/60 border border-slate-800/90 rounded-xl p-2.5">
+                    <div class="font-cyber text-xs font-bold text-cyan-400">ПРОБЕЛ / SHIFT</div>
+                    <div class="text-[11px] text-slate-400 mt-0.5">Прыжок / Спринт</div>
+                </div>
+                <div class="bg-slate-900/60 border border-slate-800/90 rounded-xl p-2.5">
+                    <div class="font-cyber text-xs font-bold text-cyan-400">R / ESC</div>
+                    <div class="text-[11px] text-slate-400 mt-0.5">Перезарядка / Меню</div>
+                </div>
+            </div>
+
+            <!-- Кнопки запуска -->
+            <div class="flex flex-col sm:flex-row gap-3">
+                <button id="btn-start-game" class="flex-1 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-cyber font-black py-3.5 px-6 rounded-xl shadow-[0_0_25px_rgba(6,182,212,0.4)] transition transform active:scale-98 flex items-center justify-center gap-2 text-base">
+                    <i class="fa-solid fa-play"></i> ВСТУПИТЬ В БОЙ
+                </button>
+                <button id="btn-lobby-guide" class="bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold py-3.5 px-5 rounded-xl border border-slate-700 transition flex items-center justify-center gap-2 text-sm">
+                    <i class="fa-solid fa-server text-cyan-400"></i> Бесплатный хостинг
+                </button>
+            </div>
+
+            <div id="auth-status-bar" class="mt-4 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
+                <i class="fa-solid fa-circle-notch fa-spin text-cyan-400"></i>
+                <span>Подключение к облачному серверу синхронизации...</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Модальное окно: Инструкция по бесплатному хостингу и локальному запуску -->
+    <div id="guide-modal" class="hidden fixed inset-0 z-40 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
+        <div class="cyber-card rounded-3xl max-w-2xl w-full p-6 sm:p-8 border border-indigo-500/40 my-auto max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-4 mb-5">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-indigo-500/20 border border-indigo-500/40 flex items-center justify-center text-indigo-400">
+                        <i class="fa-solid fa-cloud-arrow-up text-lg"></i>
+                    </div>
+                    <div>
+                        <h2 class="font-cyber text-lg font-bold text-white">КАК РАЗМЕСТИТЬ ИГРУ БЕСПЛАТНО</h2>
+                        <p class="text-xs text-slate-400">Пошаговое руководство по запуску локально и на бесплатном хостинге</p>
+                    </div>
+                </div>
+                <button id="btn-close-guide" class="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <div class="space-y-4 text-xs sm:text-sm text-slate-300 leading-relaxed">
+                <div class="bg-slate-900/80 border border-cyan-500/30 rounded-2xl p-4">
+                    <h3 class="font-bold text-cyan-400 mb-1 flex items-center gap-2">
+                        <i class="fa-solid fa-bolt"></i> 1. Игра работает прямо сейчас!
+                    </h3>
+                    <p class="text-slate-300">
+                        В этом окне уже подключена облачная база данных реального времени (Firebase Firestore) и 3D-движок Three.js. Просто введите одинаковый <strong>ID Комнаты</strong> (например, <code>ARENA-1</code>), чтобы видеть других игроков, или включите <strong>ИИ-ботов</strong> для одиночной тренировки.
+                    </p>
+                </div>
+
+                <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-4">
+                    <h3 class="font-bold text-emerald-400 mb-1.5 flex items-center gap-2">
+                        <i class="fa-brands fa-github"></i> 2. Бесплатный хостинг (GitHub Pages / Netlify Drop / Vercel)
+                    </h3>
+                    <p class="mb-2">Так как вся игра собрана в <strong>одном файле <code>index.html</code></strong>, вам не нужен платный VPS-сервер:</p>
+                    <ol class="list-decimal list-inside space-y-1.5 text-slate-300">
+                        <li>Сохраните этот код в файл с именем <code>index.html</code> на компьютере.</li>
+                        <li><strong>Самый быстрый способ (за 30 секунд):</strong> Зайдите на <code>app.netlify.com/drop</code> и просто перетащите папку с файлом <code>index.html</code> в окно браузера — вы сразу получите публичную HTTPS-ссылку для друзей!</li>
+                        <li><strong>Через GitHub Pages:</strong> Создайте бесплатный репозиторий на GitHub, загрузите туда <code>index.html</code> и включите <em>Settings → Pages → Deploy from branch (main)</em>.</li>
+                    </ol>
+                </div>
+
+                <div class="bg-slate-900/80 border border-slate-800 rounded-2xl p-4">
+                    <h3 class="font-bold text-amber-400 mb-1.5 flex items-center gap-2">
+                        <i class="fa-solid fa-fire"></i> 3. Свой бесплатный сервер синхронизации Firebase (для внешнего хостинга)
+                    </h3>
+                    <p class="mb-2">Если вы выкладываете файл на свой GitHub Pages или запускаете локально на ПК, подключите свой бесплатный проект Firebase (тариф Spark — 100% бесплатный):</p>
+                    <ol class="list-decimal list-inside space-y-1 text-slate-300 mb-3">
+                        <li>Зайдите в <code>console.firebase.google.com</code> → <em>Создать проект</em>.</li>
+                        <li>Включите <strong>Authentication</strong> → <em>Sign-in method</em> → <strong>Анонимный вход (Anonymous)</strong>.</li>
+                        <li>Включите <strong>Firestore Database</strong> (в тестовом режиме <em>Start in test mode</em>).</li>
+                        <li>Скопируйте ваш объект <code>firebaseConfig</code> в настройках проекта и вставьте в поле ниже (или прямо в код файла):</li>
+                    </ol>
+                    <div class="flex flex-col sm:flex-row gap-2">
+                        <input id="input-custom-firebase" type="text" placeholder='{"apiKey":"...","projectId":"..."}'
+                            class="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-xs text-cyan-300 font-mono outline-none">
+                        <button id="btn-apply-firebase" class="bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs transition">
+                            Применить конфиг
+                        </button>
+                    </div>
+                    <div id="custom-firebase-msg" class="text-[11px] text-emerald-400 mt-1 hidden"></div>
+                </div>
+            </div>
+
+            <div class="mt-6 flex justify-end">
+                <button id="btn-close-guide-bottom" class="bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold px-6 py-2.5 rounded-xl text-sm transition">
+                    Понятно, вернуться в игру
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Логика Игры и Сетевой Синхронизации -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, updateDoc, deleteDoc, onSnapshot, collection } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // ==========================================
+        // 1. ЗВУКОВОЙ СИНТЕЗАТОР (Выстрелы АК-47, Затвор, Шаги)
+        // ==========================================
+        class SoundFX {
+            constructor() {
+                this.ctx = null;
+                this.noiseBuffer = null;
+            }
+            init() {
+                try {
+                    if (!this.ctx) {
+                        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                        if (AudioCtx) {
+                            this.ctx = new AudioCtx();
+                            // Генерируем буфер белого шума для плотного порохового выстрела АК-47
+                            const sr = this.ctx.sampleRate;
+                            this.noiseBuffer = this.ctx.createBuffer(1, sr * 0.25, sr);
+                            const output = this.noiseBuffer.getChannelData(0);
+                            for (let i = 0; i < output.length; i++) {
+                                output[i] = Math.random() * 2 - 1;
+                            }
+                        }
+                    }
+                    if (this.ctx && this.ctx.state === 'suspended') {
+                        this.ctx.resume();
+                    }
+                } catch (e) {}
+            }
+            playAK47Shot(isDistant = false) {
+                if (!this.ctx) return;
+                try {
+                    const now = this.ctx.currentTime;
+                    const masterVol = isDistant ? 0.08 : 0.28;
+
+                    // 1. Пороховой хлопок (отфильтрованный шум)
+                    if (this.noiseBuffer) {
+                        const noise = this.ctx.createBufferSource();
+                        noise.buffer = this.noiseBuffer;
+                        const filter = this.ctx.createBiquadFilter();
+                        filter.type = 'bandpass';
+                        filter.frequency.setValueAtTime(isDistant ? 650 : 1100, now);
+                        filter.Q.setValueAtTime(0.7, now);
+
+                        const nGain = this.ctx.createGain();
+                        nGain.gain.setValueAtTime(masterVol * 1.3, now);
+                        nGain.gain.exponentialRampToValueAtTime(0.001, now + 0.13);
+
+                        noise.connect(filter);
+                        filter.connect(nGain);
+                        nGain.connect(this.ctx.destination);
+                        noise.start(now);
+                        noise.stop(now + 0.14);
+                    }
+
+                    // 2. Низкочастотный удар 7.62мм + лязг затворной рамы
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(isDistant ? 150 : 210, now);
+                    osc.frequency.exponentialRampToValueAtTime(42, now + 0.11);
+
+                    gain.gain.setValueAtTime(masterVol, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+
+                    osc.connect(gain);
+                    gain.connect(this.ctx.destination);
+                    osc.start(now);
+                    osc.stop(now + 0.12);
+                } catch (e) {}
+            }
+            playHitMarker(isHeadshot = false) {
+                if (!this.ctx) return;
+                try {
+                    const now = this.ctx.currentTime;
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.type = isHeadshot ? 'triangle' : 'sine';
+                    osc.frequency.setValueAtTime(isHeadshot ? 1750 : 1300, now);
+                    osc.frequency.setValueAtTime(isHeadshot ? 2450 : 1800, now + 0.035);
+                    gain.gain.setValueAtTime(0.26, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+                    osc.connect(gain);
+                    gain.connect(this.ctx.destination);
+                    osc.start(now);
+                    osc.stop(now + 0.1);
+                } catch (e) {}
+            }
+            playKill() {
+                if (!this.ctx) return;
+                try {
+                    const now = this.ctx.currentTime;
+                    [523.25, 659.25, 783.99, 1046.5].forEach((freq, idx) => {
+                        const osc = this.ctx.createOscillator();
+                        const gain = this.ctx.createGain();
+                        osc.type = 'triangle';
+                        osc.frequency.setValueAtTime(freq, now + idx * 0.055);
+                        gain.gain.setValueAtTime(0.18, now + idx * 0.055);
+                        gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.055 + 0.2);
+                        osc.connect(gain);
+                        gain.connect(this.ctx.destination);
+                        osc.start(now + idx * 0.055);
+                        osc.stop(now + idx * 0.055 + 0.2);
+                    });
+                } catch (e) {}
+            }
+            playReloadClick(freq = 280) {
+                if (!this.ctx) return;
+                try {
+                    const now = this.ctx.currentTime;
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.type = 'square';
+                    osc.frequency.setValueAtTime(freq, now);
+                    osc.frequency.setValueAtTime(freq * 1.35, now + 0.04);
+                    gain.gain.setValueAtTime(0.14, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.11);
+                    osc.connect(gain);
+                    gain.connect(this.ctx.destination);
+                    osc.start(now);
+                    osc.stop(now + 0.11);
+                } catch (e) {}
+            }
+            playHurt() {
+                if (!this.ctx) return;
+                try {
+                    const now = this.ctx.currentTime;
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(140, now);
+                    osc.frequency.linearRampToValueAtTime(55, now + 0.2);
+                    gain.gain.setValueAtTime(0.25, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+                    osc.connect(gain);
+                    gain.connect(this.ctx.destination);
+                    osc.start(now);
+                    osc.stop(now + 0.22);
+                } catch (e) {}
+            }
+        }
+        const sfx = new SoundFX();
+
+        // ==========================================
+        // 2. СОСТОЯНИЕ ИГРЫ И FIREBASE СИНХРОНИЗАЦИЯ
+        // ==========================================
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'cyber-arena-fps';
+        let db = null;
+        let auth = null;
+        let currentUser = null;
+        let unsubscribeRoom = null;
+        let syncInterval = null;
+
+        const state = {
+            isPlaying: false,
+            nickname: 'Сталкер_' + Math.floor(100 + Math.random() * 899),
+            roomId: 'ARENA-1',
+            hp: 100,
+            maxHp: 100,
+            stamina: 100,
+            maxStamina: 100,
+            isExhausted: false,
+            ammo: 30,
+            maxAmmo: 30,
+            isReloading: false,
+            reloadStartTime: 0,
+            reloadDuration: 1550,
+            kills: 0,
+            deaths: 0,
+            color: '#00f3ff',
+            // ВАЖНО: Разделяем локальный таймер скорострельности (performance.now) и сетевую метку (Date.now),
+            // чтобы оружие НИКОГДА не блокировалось после первого выстрела!
+            lastFirePerfTime: -9999,
+            fireIntervalMs: 100, // 600 выстр/мин (темп стрельбы АК-47)
+            lastShotTime: 0,
+            shotTargetPos: null,
+            lastProcessedDamageToken: '',
+            desiredBotsCount: 3
+        };
+
+        document.getElementById('input-nickname').value = state.nickname;
+
+        // Инициализация Firebase с соблюдением всех 3 правил
+        async function initFirebaseSystem(customConfigObj = null) {
+            const statusEl = document.getElementById('auth-status-bar');
+            try {
+                let configToUse = customConfigObj;
+                if (!configToUse && typeof __firebase_config !== 'undefined' && __firebase_config) {
+                    configToUse = JSON.parse(__firebase_config);
+                }
+
+                if (!configToUse) {
+                    statusEl.innerHTML = `<span class="text-amber-400"><i class="fa-solid fa-triangle-exclamation"></i> Автономный режим с ИИ-ботами (для онлайна на своем хостинге укажите Firebase конфиг)</span>`;
+                    document.getElementById('net-status-dot').className = 'w-2.5 h-2.5 rounded-full bg-amber-400';
+                    return;
+                }
+
+                const app = initializeApp(configToUse, customConfigObj ? 'custom-' + Date.now() : undefined);
+                auth = getAuth(app);
+                db = getFirestore(app);
+
+                // ПРАВИЛО 3: Сначала выполняем авторизацию и ожидаем её завершения
+                if (!customConfigObj && typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+
+                onAuthStateChanged(auth, (user) => {
+                    currentUser = user;
+                    if (user) {
+                        statusEl.innerHTML = `<span class="text-emerald-400"><i class="fa-solid fa-circle-check"></i> Облачный сервер подключен (ID: ${user.uid.slice(0, 8)}...)</span>`;
+                        document.getElementById('net-status-dot').className = 'w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse';
+                        joinMultiplayerRoom(state.roomId);
+                    }
+                });
+            } catch (err) {
+                console.error('Ошибка инициализации сети:', err);
+                statusEl.innerHTML = `<span class="text-amber-400"><i class="fa-solid fa-robot"></i> Локальный режим с умными ботами активен</span>`;
+            }
+        }
+
+        function getRoomCollectionName(roomRaw) {
+            const clean = (roomRaw || 'ARENA1').replace(/[^a-zA-Z0-9_-]/g, '').toUpperCase() || 'ARENA1';
+            return `cyberfps_room_${clean}`;
+        }
+
+        function joinMultiplayerRoom(newRoomId) {
+            state.roomId = (newRoomId || 'ARENA-1').trim().toUpperCase();
+            document.getElementById('hud-room-name').textContent = state.roomId;
+
+            if (!db || !currentUser) return;
+
+            if (unsubscribeRoom) {
+                unsubscribeRoom();
+                unsubscribeRoom = null;
+            }
+
+            Object.keys(remotePlayers).forEach(uid => removeRemotePlayerMesh(uid));
+
+            const colName = getRoomCollectionName(state.roomId);
+            const colRef = collection(db, 'artifacts', appId, 'public', 'data', colName);
+
+            unsubscribeRoom = onSnapshot(
+                colRef,
+                (snapshot) => {
+                    const now = Date.now();
+                    const seenIds = new Set();
+
+                    snapshot.forEach((docSnap) => {
+                        const data = docSnap.data();
+                        const uid = docSnap.id;
+                        if (!data) return;
+
+                        if (uid === currentUser.uid) {
+                            if (data.damageToken && data.damageToken !== state.lastProcessedDamageToken) {
+                                state.lastProcessedDamageToken = data.damageToken;
+                                applyDamageToLocalPlayer(data.damageAmount || 24, data.damagedBy || 'Соперник');
+                            }
+                            return;
+                        }
+
+                        if (now - (data.updatedAt || 0) > 15000) {
+                            removeRemotePlayerMesh(uid);
+                            return;
+                        }
+
+                        seenIds.add(uid);
+                        updateOrCreateRemotePlayer(uid, data);
+                    });
+
+                    Object.keys(remotePlayers).forEach((uid) => {
+                        if (!seenIds.has(uid)) {
+                            removeRemotePlayerMesh(uid);
+                        }
+                    });
+
+                    updateScoreboardUI();
+                },
+                (err) => {
+                    console.error('Ошибка чтения комнаты Firestore:', err);
+                }
+            );
+
+            if (syncInterval) clearInterval(syncInterval);
+            syncInterval = setInterval(() => {
+                broadcastLocalPlayerState();
+            }, 140);
+
+            broadcastLocalPlayerState();
+        }
+
+        async function broadcastLocalPlayerState(extraFields = {}) {
+            if (!db || !currentUser) return;
+            try {
+                const colName = getRoomCollectionName(state.roomId);
+                const playerDocRef = doc(db, 'artifacts', appId, 'public', 'data', colName, currentUser.uid);
+
+                const payload = {
+                    uid: currentUser.uid,
+                    name: state.nickname,
+                    x: Number(camera.position.x.toFixed(2)),
+                    y: Number(camera.position.y.toFixed(2)),
+                    z: Number(camera.position.z.toFixed(2)),
+                    yaw: Number(playerYaw.toFixed(3)),
+                    hp: state.hp,
+                    kills: state.kills,
+                    deaths: state.deaths,
+                    color: state.color,
+                    lastShotTime: state.lastShotTime,
+                    shotTargetPos: state.shotTargetPos,
+                    updatedAt: Date.now(),
+                    ...extraFields
+                };
+
+                await setDoc(playerDocRef, payload, { merge: true });
+            } catch (e) {}
+        }
+
+        async function sendNetworkDamage(targetUid, damageAmount) {
+            if (!db || !currentUser) return;
+            try {
+                const colName = getRoomCollectionName(state.roomId);
+                const targetDocRef = doc(db, 'artifacts', appId, 'public', 'data', colName, targetUid);
+                await setDoc(targetDocRef, {
+                    damageToken: `${currentUser.uid}_${Date.now()}_${Math.random()}`,
+                    damageAmount: damageAmount,
+                    damagedBy: state.nickname
+                }, { merge: true });
+            } catch (e) {}
+        }
+
+        // ==========================================
+        // 3. THREE.JS 3D СЦЕНА, АРЕНА И ЖЕСТКИЕ КОЛЛИЗИИ
+        // ==========================================
+        const canvas = document.getElementById('game-canvas');
+        const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x050814);
+        scene.fog = new THREE.FogExp2(0x050814, 0.011);
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.08, 200);
+        const PLAYER_EYE_HEIGHT = 1.7;
+        camera.position.set(0, PLAYER_EYE_HEIGHT, 18);
+        scene.add(camera);
+
+        // Освещение арены
+        const ambientLight = new THREE.AmbientLight(0x38bdf8, 0.5);
+        scene.add(ambientLight);
+
+        const dirLight = new THREE.DirectionalLight(0xfffbeb, 0.9);
+        dirLight.position.set(25, 45, 20);
+        dirLight.castShadow = true;
+        dirLight.shadow.mapSize.width = 1024;
+        dirLight.shadow.mapSize.height = 1024;
+        scene.add(dirLight);
+
+        const centerPointLight = new THREE.PointLight(0x00f3ff, 1.3, 45);
+        centerPointLight.position.set(0, 8, 0);
+        scene.add(centerPointLight);
+
+        // Массив коллайдеров препятствий и тактических точек укрытия для ботов
+        const arenaColliders = []; // { minX, maxX, minY, maxY, minZ, maxZ, cx, cz, w, d, mesh }
+        const shootableObstacleMeshes = [];
+        const tacticalWaypoints = [
+            new THREE.Vector3(-24, 0, -24),
+            new THREE.Vector3(24, 0, -24),
+            new THREE.Vector3(-24, 0, 24),
+            new THREE.Vector3(24, 0, 24),
+            new THREE.Vector3(0, 0, -16),
+            new THREE.Vector3(0, 0, 16),
+            new THREE.Vector3(-16, 0, 0),
+            new THREE.Vector3(16, 0, 0),
+            new THREE.Vector3(-27, 0, 0),
+            new THREE.Vector3(27, 0, 0),
+            new THREE.Vector3(0, 0, -28),
+            new THREE.Vector3(0, 0, 28)
+        ];
+
+        function createCyberGridTexture() {
+            const c = document.createElement('canvas');
+            c.width = 256;
+            c.height = 256;
+            const ctx = c.getContext('2d');
+            ctx.fillStyle = '#070b19';
+            ctx.fillRect(0, 0, 256, 256);
+            ctx.strokeStyle = 'rgba(0, 243, 255, 0.28)';
+            ctx.lineWidth = 3;
+            ctx.strokeRect(0, 0, 256, 256);
+            ctx.strokeStyle = 'rgba(56, 189, 248, 0.08)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(128, 0); ctx.lineTo(128, 256);
+            ctx.moveTo(0, 128); ctx.lineTo(256, 128);
+            ctx.stroke();
+
+            const tex = new THREE.CanvasTexture(c);
+            tex.wrapS = THREE.RepeatWrapping;
+            tex.wrapT = THREE.RepeatWrapping;
+            tex.repeat.set(36, 36);
+            return tex;
+        }
+
+        function buildCyberArena() {
+            const floorGeo = new THREE.PlaneGeometry(72, 72);
+            const floorMat = new THREE.MeshStandardMaterial({
+                map: createCyberGridTexture(),
+                roughness: 0.4,
+                metalness: 0.3
+            });
+            const floor = new THREE.Mesh(floorGeo, floorMat);
+            floor.rotation.x = -Math.PI / 2;
+            floor.receiveShadow = true;
+            scene.add(floor);
+            shootableObstacleMeshes.push(floor);
+
+            function addBlock(x, y, z, w, h, d, colorHex = 0x0f172a, edgeHex = 0x00f3ff, isCover = true) {
+                const geo = new THREE.BoxGeometry(w, h, d);
+                const mat = new THREE.MeshStandardMaterial({
+                    color: colorHex,
+                    roughness: 0.35,
+                    metalness: 0.6
+                });
+                const mesh = new THREE.Mesh(geo, mat);
+                mesh.position.set(x, y, z);
+                mesh.castShadow = true;
+                mesh.receiveShadow = true;
+
+                const edges = new THREE.EdgesGeometry(geo);
+                const lineMat = new THREE.LineBasicMaterial({ color: edgeHex, transparent: true, opacity: 0.65 });
+                const wireframe = new THREE.LineSegments(edges, lineMat);
+                mesh.add(wireframe);
+
+                scene.add(mesh);
+                shootableObstacleMeshes.push(mesh);
+
+                arenaColliders.push({
+                    minX: x - w / 2,
+                    maxX: x + w / 2,
+                    minY: y - h / 2,
+                    maxY: y + h / 2,
+                    minZ: z - d / 2,
+                    maxZ: z + d / 2,
+                    cx: x,
+                    cz: z,
+                    w,
+                    h,
+                    d,
+                    isCover,
+                    mesh
+                });
+            }
+
+            // Внешние стены арены
+            addBlock(0, 4, -36, 72, 8, 2, 0x090d1a, 0x06b6d4, false);
+            addBlock(0, 4, 36, 72, 8, 2, 0x090d1a, 0x06b6d4, false);
+            addBlock(-36, 4, 0, 2, 8, 72, 0x090d1a, 0x06b6d4, false);
+            addBlock(36, 4, 0, 2, 8, 72, 0x090d1a, 0x06b6d4, false);
+
+            // Центральный энергетический бастион и подиум
+            addBlock(0, 0.6, 0, 10, 1.2, 10, 0x1e293b, 0x00f3ff, true);
+            addBlock(0, 3.2, 0, 2.6, 4.0, 2.6, 0x0f172a, 0xf43f5e, true);
+
+            // Ступеньки на центральный подиум
+            addBlock(0, 0.3, 5.8, 4, 0.6, 1.6, 0x1e293b, 0x38bdf8, false);
+            addBlock(0, 0.3, -5.8, 4, 0.6, 1.6, 0x1e293b, 0x38bdf8, false);
+
+            // Четыре угловые колонны и ящики
+            const pillars = [
+                [-14, -14], [14, -14], [-14, 14], [14, 14]
+            ];
+            pillars.forEach(([px, pz]) => {
+                addBlock(px, 2.5, pz, 4, 5, 4, 0x111827, 0x00f3ff, true);
+                addBlock(px + (px > 0 ? -3.2 : 3.2), 0.75, pz, 1.8, 1.5, 1.8, 0x1e1b4b, 0xa855f7, true);
+            });
+
+            // Боковые стены-укрытия
+            addBlock(-22, 1.6, 0, 2, 3.2, 12, 0x0f172a, 0x22d3ee, true);
+            addBlock(22, 1.6, 0, 2, 3.2, 12, 0x0f172a, 0x22d3ee, true);
+            addBlock(0, 1.6, -22, 12, 3.2, 2, 0x0f172a, 0xf43f5e, true);
+            addBlock(0, 1.6, 22, 12, 3.2, 2, 0x0f172a, 0xf43f5e, true);
+        }
+        buildCyberArena();
+
+        // УНИВЕРСАЛЬНОЕ ВЫТАЛКИВАНИЕ ИЗ СТЕН И ТЕКСТУР (Используется и игроком, и ботами!)
+        // Гарантирует, что ни один бот и ни один игрок не сможет пройти сквозь текстуры
+        function resolveEntityCollisions(posVec, radius, feetY, entityHeight = 1.75) {
+            // Ограничение периметра арены
+            const limit = 34.4 - radius;
+            posVec.x = Math.max(-limit, Math.min(limit, posVec.x));
+            posVec.z = Math.max(-limit, Math.min(limit, posVec.z));
+
+            for (let iter = 0; iter < 2; iter++) {
+                for (const c of arenaColliders) {
+                    // Если объект ниже уровня колена (ступенька, на которую можно шагнуть), пропускаем горизонтальный блок
+                    if (feetY + entityHeight <= c.minY + 0.05 || feetY + 0.52 >= c.maxY) {
+                        continue;
+                    }
+
+                    // Находим ближайшую точку AABB-коллайдера к центру цилиндра персонажа
+                    const closestX = Math.max(c.minX, Math.min(posVec.x, c.maxX));
+                    const closestZ = Math.max(c.minZ, Math.min(posVec.z, c.maxZ));
+
+                    const dx = posVec.x - closestX;
+                    const dz = posVec.z - closestZ;
+                    const distSq = dx * dx + dz * dz;
+
+                    if (distSq < radius * radius) {
+                        if (distSq > 0.00001) {
+                            const dist = Math.sqrt(distSq);
+                            const overlap = radius - dist;
+                            posVec.x += (dx / dist) * overlap;
+                            posVec.z += (dz / dist) * overlap;
+                        } else {
+                            // Центр оказался глубоко внутри блока — выталкиваем к ближайшей грани
+                            const toLeft = Math.abs(posVec.x - c.minX);
+                            const toRight = Math.abs(c.maxX - posVec.x);
+                            const toBack = Math.abs(posVec.z - c.minZ);
+                            const toFront = Math.abs(c.maxZ - posVec.z);
+                            const minPen = Math.min(toLeft, toRight, toBack, toFront);
+                            if (minPen === toLeft) posVec.x = c.minX - radius;
+                            else if (minPen === toRight) posVec.x = c.maxX + radius;
+                            else if (minPen === toBack) posVec.z = c.minZ - radius;
+                            else posVec.z = c.maxZ + radius;
+                        }
+                    }
+                }
+            }
+        }
+
+        function getFloorHeightAt(x, z, currentFeetY) {
+            let highestFloor = 0;
+            for (const c of arenaColliders) {
+                if (x + 0.35 > c.minX && x - 0.35 < c.maxX &&
+                    z + 0.35 > c.minZ && z - 0.35 < c.maxZ) {
+                    if (currentFeetY + 0.65 >= c.maxY && c.maxY > highestFloor) {
+                        highestFloor = c.maxY;
+                    }
+                }
+            }
+            return highestFloor;
+        }
+
+        // Проверка прямой видимости между двумя 3D точками (чтобы боты не стреляли сквозь стены)
+        const losRaycaster = new THREE.Raycaster();
+        function hasLineOfSight(startPt, endPt) {
+            const dir = new THREE.Vector3().subVectors(endPt, startPt);
+            const dist = dir.length();
+            if (dist < 0.2) return true;
+            dir.normalize();
+            losRaycaster.set(startPt, dir);
+            losRaycaster.near = 0.2;
+            losRaycaster.far = dist - 0.2;
+            const hits = losRaycaster.intersectObjects(shootableObstacleMeshes, false);
+            return hits.length === 0;
+        }
+
+        // ==========================================
+        // 4. ДЕТАЛИЗИРОВАННАЯ 3D МОДЕЛЬ АК-47 («КАЛАШ») И ГИЛЬЗЫ
+        // ==========================================
+        function createAK47Model(isFirstPerson = false) {
+            const ak = new THREE.Group();
+
+            // Материалы АК-47: вороненая оружейная сталь, темный металл ствола, лакированное дерево и рыжий бакелит рожка
+            const receiverSteelMat = new THREE.MeshStandardMaterial({ color: 0x1e242b, metalness: 0.82, roughness: 0.32 });
+            const barrelSteelMat = new THREE.MeshStandardMaterial({ color: 0x11151c, metalness: 0.9, roughness: 0.22 });
+            const woodMat = new THREE.MeshStandardMaterial({ color: 0x6e3214, metalness: 0.1, roughness: 0.55 });
+            const bakeliteMagMat = new THREE.MeshStandardMaterial({ color: 0xb84114, metalness: 0.2, roughness: 0.4 });
+            const chromeBoltMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, metalness: 0.92, roughness: 0.18 });
+
+            // 1. Ствольная коробка (Receiver)
+            const receiver = new THREE.Mesh(new THREE.BoxGeometry(0.056, 0.082, 0.32), receiverSteelMat);
+            receiver.position.set(0, 0, 0);
+
+            // Ребристая крышка ствольной коробки (Dust Cover)
+            const dustCover = new THREE.Mesh(new THREE.CylinderGeometry(0.028, 0.028, 0.29, 10), receiverSteelMat);
+            dustCover.rotation.x = Math.PI / 2;
+            dustCover.position.set(0, 0.042, 0.01);
+
+            // 2. Деревянный приклад АК-47 (Buttstock) с характерным наклоном вниз
+            const stockMain = new THREE.Mesh(new THREE.BoxGeometry(0.046, 0.088, 0.28), woodMat);
+            stockMain.position.set(0, -0.028, 0.28);
+            stockMain.rotation.x = -0.18;
+
+            const stockNeck = new THREE.Mesh(new THREE.BoxGeometry(0.048, 0.064, 0.1), woodMat);
+            stockNeck.position.set(0, -0.008, 0.17);
+            stockNeck.rotation.x = -0.12;
+
+            const buttPlate = new THREE.Mesh(new THREE.BoxGeometry(0.048, 0.105, 0.018), barrelSteelMat);
+            buttPlate.position.set(0, -0.048, 0.415);
+
+            // 3. Пистолетная рукоятка (Pistol Grip) и спусковая скоба
+            const grip = new THREE.Mesh(new THREE.BoxGeometry(0.042, 0.125, 0.054), woodMat);
+            grip.position.set(0, -0.085, 0.085);
+            grip.rotation.x = 0.34;
+
+            const triggerGuard = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.036, 0.065), barrelSteelMat);
+            triggerGuard.position.set(0, -0.052, 0.02);
+
+            // 4. Знаменитый изогнутый рожок на 30 патронов ("банан" из 3-х сегментов под углом)
+            const magGroup = new THREE.Group();
+            magGroup.position.set(0, -0.04, -0.085);
+
+            const magTop = new THREE.Mesh(new THREE.BoxGeometry(0.044, 0.095, 0.068), bakeliteMagMat);
+            magTop.position.set(0, -0.04, 0);
+            magTop.rotation.x = -0.22;
+
+            const magMid = new THREE.Mesh(new THREE.BoxGeometry(0.044, 0.095, 0.068), bakeliteMagMat);
+            magMid.position.set(0, -0.115, -0.026);
+            magMid.rotation.x = -0.44;
+
+            const magBot = new THREE.Mesh(new THREE.BoxGeometry(0.044, 0.085, 0.068), bakeliteMagMat);
+            magBot.position.set(0, -0.18, -0.068);
+            magBot.rotation.x = -0.64;
+
+            magGroup.add(magTop, magMid, magBot);
+
+            // 5. Деревянное цевье и ствольная накладка (Handguard)
+            const lowerHandguard = new THREE.Mesh(new THREE.BoxGeometry(0.054, 0.054, 0.21), woodMat);
+            lowerHandguard.position.set(0, 0.002, -0.265);
+
+            const upperHandguard = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.17, 10), woodMat);
+            upperHandguard.rotation.x = Math.PI / 2;
+            upperHandguard.position.set(0, 0.044, -0.255);
+
+            // 6. Нарезной ствол, газовая трубка, шомпол, стойка мушки и косой компенсатор АК-47
+            const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.016, 0.48, 12), barrelSteelMat);
+            barrel.rotation.x = Math.PI / 2;
+            barrel.position.set(0, 0.012, -0.40);
+
+            const gasTube = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.26, 10), receiverSteelMat);
+            gasTube.rotation.x = Math.PI / 2;
+            gasTube.position.set(0, 0.044, -0.29);
+
+            const gasBlock = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.052, 0.035), barrelSteelMat);
+            gasBlock.position.set(0, 0.028, -0.42);
+
+            // Стойка мушки с защитным кольцом (Front Sight)
+            const frontSightBase = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.065, 0.032), barrelSteelMat);
+            frontSightBase.position.set(0, 0.042, -0.58);
+
+            const frontSightPost = new THREE.Mesh(new THREE.BoxGeometry(0.006, 0.025, 0.006), chromeBoltMat);
+            frontSightPost.position.set(0, 0.08, -0.58);
+
+            // Целик (Rear Sight Block) с прорезью для прицеливания ПКМ
+            const rearSightBase = new THREE.Mesh(new THREE.BoxGeometry(0.044, 0.026, 0.06), barrelSteelMat);
+            rearSightBase.position.set(0, 0.056, -0.13);
+            const rearSightLeft = new THREE.Mesh(new THREE.BoxGeometry(0.014, 0.018, 0.016), barrelSteelMat);
+            rearSightLeft.position.set(-0.012, 0.074, -0.11);
+            const rearSightRight = new THREE.Mesh(new THREE.BoxGeometry(0.014, 0.018, 0.016), barrelSteelMat);
+            rearSightRight.position.set(0.012, 0.074, -0.11);
+
+            // Косой дульный тормоз-компенсатор АКМ
+            const muzzleBrake = new THREE.Mesh(new THREE.CylinderGeometry(0.017, 0.017, 0.045, 10), barrelSteelMat);
+            muzzleBrake.rotation.x = Math.PI / 2;
+            muzzleBrake.position.set(0, 0.012, -0.65);
+
+            // 7. Подвижная затворная рама с рукояткой перезарядки (Bolt Carrier) — двигается при каждом выстреле!
+            const boltGroup = new THREE.Group();
+            const boltCarrier = new THREE.Mesh(new THREE.BoxGeometry(0.016, 0.026, 0.11), chromeBoltMat);
+            boltCarrier.position.set(0.026, 0.032, -0.02);
+            const chargingHandle = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.038, 8), barrelSteelMat);
+            chargingHandle.rotation.z = Math.PI / 2;
+            chargingHandle.position.set(0.046, 0.032, -0.045);
+            boltGroup.add(boltCarrier, chargingHandle);
+
+            // 8. Вспышка выстрела (Muzzle Flash) и динамический свет выстрела
+            const flashGeo = new THREE.OctahedronGeometry(0.095, 1);
+            const flashMat = new THREE.MeshBasicMaterial({ color: 0xffb703, transparent: true, opacity: 0 });
+            const muzzleFlash = new THREE.Mesh(flashGeo, flashMat);
+            muzzleFlash.position.set(0, 0.012, -0.71);
+
+            ak.add(
+                receiver, dustCover, stockMain, stockNeck, buttPlate,
+                grip, triggerGuard, magGroup, lowerHandguard, upperHandguard,
+                barrel, gasTube, gasBlock, frontSightBase, frontSightPost,
+                rearSightBase, rearSightLeft, rearSightRight, muzzleBrake,
+                boltGroup, muzzleFlash
+            );
+
+            if (isFirstPerson) {
+                const muzzleLight = new THREE.PointLight(0xff9e00, 0, 7);
+                muzzleLight.position.set(0, 0.05, -0.75);
+                ak.add(muzzleLight);
+                ak.userData.muzzleLight = muzzleLight;
+            }
+
+            ak.userData.muzzleFlash = muzzleFlash;
+            ak.userData.boltGroup = boltGroup;
+            ak.userData.magGroup = magGroup;
+            return ak;
+        }
+
+        const weaponGroup = createAK47Model(true);
+        weaponGroup.position.set(0.24, -0.22, -0.42);
+        camera.add(weaponGroup);
+
+        // Вылетающие латунные гильзы при стрельбе из АК-47
+        const activeShellCasings = [];
+        const shellGeo = new THREE.CylinderGeometry(0.007, 0.008, 0.036, 8);
+        shellGeo.rotateZ(Math.PI / 2);
+        const shellMat = new THREE.MeshStandardMaterial({ color: 0xfbbf24, metalness: 0.9, roughness: 0.2 });
+
+        function spawnShellCasing() {
+            const shell = new THREE.Mesh(shellGeo, shellMat);
+            const worldPos = new THREE.Vector3();
+            weaponGroup.userData.boltGroup.getWorldPosition(worldPos);
+            shell.position.copy(worldPos);
+
+            // Выбрасываем гильзу вправо-вверх относительно взгляда камеры
+            const rightVec = new THREE.Vector3(1, 0.45, -0.15).applyQuaternion(camera.quaternion).normalize();
+            const vel = rightVec.multiplyScalar(3.2 + Math.random() * 1.4);
+            vel.y += 1.8 + Math.random() * 0.8;
+
+            scene.add(shell);
+            activeShellCasings.push({
+                mesh: shell,
+                vel,
+                rotVel: new THREE.Vector3(Math.random() * 18, Math.random() * 18, Math.random() * 18),
+                createdAt: performance.now()
+            });
+        }
+
+        // Создание 3D трассера пули 7.62мм и искр попадания
+        const activeLaserBeams = [];
+        function spawnLaserBeam(startVec, endVec, colorHex = 0xfbbf24) {
+            const points = [startVec.clone(), endVec.clone()];
+            const geo = new THREE.BufferGeometry().setFromPoints(points);
+            const mat = new THREE.LineBasicMaterial({ color: colorHex, transparent: true, opacity: 0.95 });
+            const line = new THREE.Line(geo, mat);
+            scene.add(line);
+
+            const sparkGeo = new THREE.SphereGeometry(0.14, 8, 8);
+            const sparkMat = new THREE.MeshBasicMaterial({ color: colorHex, transparent: true, opacity: 0.95 });
+            const spark = new THREE.Mesh(sparkGeo, sparkMat);
+            spark.position.copy(endVec);
+            scene.add(spark);
+
+            activeLaserBeams.push({ line, spark, createdAt: performance.now() });
+        }
+
+        // ==========================================
+        // 5. МОДЕЛИ ИГРОКОВ И УМНЫХ БОТОВ С АК-47 В РУКАХ
+        // ==========================================
+        const remotePlayers = {};
+        const aiBots = [];
+
+        function createOverheadLabelCanvas() {
+            const c = document.createElement('canvas');
+            c.width = 256;
+            c.height = 88;
+            const tex = new THREE.CanvasTexture(c);
+            const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
+            const sprite = new THREE.Sprite(mat);
+            sprite.scale.set(2.25, 0.78, 1);
+            sprite.position.set(0, 2.32, 0);
+            sprite.userData = { canvas: c, ctx: c.getContext('2d'), texture: tex };
+            return sprite;
+        }
+
+        function updateOverheadLabel(sprite, name, hp, badgeColor = '#00f3ff', statusText = '') {
+            const { canvas: c, ctx, texture } = sprite.userData;
+            ctx.clearRect(0, 0, c.width, c.height);
+
+            ctx.fillStyle = 'rgba(9, 13, 26, 0.82)';
+            ctx.fillRect(14, 6, 228, 68);
+            ctx.strokeStyle = badgeColor;
+            ctx.lineWidth = 2;
+            ctx.strokeRect(14, 6, 228, 68);
+
+            ctx.font = 'bold 19px Inter, sans-serif';
+            ctx.fillStyle = '#ffffff';
+            ctx.textAlign = 'center';
+            ctx.fillText(name.slice(0, 16), 128, 28);
+
+            if (statusText) {
+                ctx.font = 'bold 12px Orbitron, sans-serif';
+                ctx.fillStyle = '#fbbf24';
+                ctx.fillText(statusText, 128, 44);
+            }
+
+            const barW = 196;
+            const hpRatio = Math.max(0, Math.min(1, hp / 100));
+            ctx.fillStyle = '#1e293b';
+            ctx.fillRect(30, 52, barW, 12);
+            ctx.fillStyle = hpRatio > 0.4 ? '#10b981' : '#f43f5e';
+            ctx.fillRect(30, 52, barW * hpRatio, 12);
+
+            texture.needsUpdate = true;
+        }
+
+        function createCharacterMesh(accentHex = 0x00f3ff, entityId = '', isBot = false) {
+            const group = new THREE.Group();
+
+            const armorMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.3, metalness: 0.7 });
+            const neonMat = new THREE.MeshBasicMaterial({ color: accentHex });
+
+            const torso = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.95, 0.45), armorMat);
+            torso.position.y = 1.05;
+            torso.castShadow = true;
+
+            const chestPlate = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.35, 0.48), neonMat);
+            chestPlate.position.y = 1.15;
+
+            const head = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.46, 0.46), armorMat);
+            head.position.y = 1.82;
+            head.castShadow = true;
+
+            const visor = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.14, 0.06), neonMat);
+            visor.position.set(0, 1.84, -0.24);
+
+            // Вручаем каждому персонажу и боту 3D-модель АК-47!
+            const charAK = createAK47Model(false);
+            charAK.scale.set(1.25, 1.25, 1.25);
+            charAK.position.set(0.38, 1.18, -0.28);
+
+            const leftLeg = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.6, 0.32), armorMat);
+            leftLeg.position.set(-0.2, 0.3, 0);
+            const rightLeg = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.6, 0.32), armorMat);
+            rightLeg.position.set(0.2, 0.3, 0);
+
+            const hitbox = new THREE.Mesh(
+                new THREE.BoxGeometry(0.95, 2.0, 0.95),
+                new THREE.MeshBasicMaterial({ visible: false })
+            );
+            hitbox.position.y = 1.0;
+            hitbox.userData = { isCharacterHitbox: true, entityId, isBot, isHeadshot: false };
+
+            head.userData = { isCharacterHitbox: true, entityId, isBot, isHeadshot: true };
+            torso.userData = { isCharacterHitbox: true, entityId, isBot, isHeadshot: false };
+
+            const labelSprite = createOverheadLabelCanvas();
+
+            group.add(torso, chestPlate, head, visor, charAK, leftLeg, rightLeg, hitbox, labelSprite);
+            group.userData = { hitbox, head, torso, labelSprite, leftLeg, rightLeg, charAK };
+            return group;
+        }
+
+        function updateOrCreateRemotePlayer(uid, data) {
+            let rp = remotePlayers[uid];
+            if (!rp) {
+                const mesh = createCharacterMesh(0x00f3ff, uid, false);
+                scene.add(mesh);
+                rp = {
+                    uid,
+                    mesh,
+                    data,
+                    targetPos: new THREE.Vector3(data.x || 0, (data.y || PLAYER_EYE_HEIGHT) - PLAYER_EYE_HEIGHT, data.z || 0),
+                    targetYaw: data.yaw || 0,
+                    lastRenderedShot: data.lastShotTime || 0
+                };
+                mesh.position.copy(rp.targetPos);
+                remotePlayers[uid] = rp;
+            }
+
+            rp.data = data;
+            rp.targetPos.set(data.x || 0, (data.y || PLAYER_EYE_HEIGHT) - PLAYER_EYE_HEIGHT, data.z || 0);
+            rp.targetYaw = data.yaw || 0;
+
+            updateOverheadLabel(rp.mesh.userData.labelSprite, data.name || 'Игрок', data.hp ?? 100, '#00f3ff', 'ОНЛАЙН');
+
+            if (data.lastShotTime && data.lastShotTime !== rp.lastRenderedShot) {
+                rp.lastRenderedShot = data.lastShotTime;
+                if (data.shotTargetPos && Array.isArray(data.shotTargetPos)) {
+                    const startVec = rp.mesh.position.clone().add(new THREE.Vector3(0, 1.35, 0));
+                    const endVec = new THREE.Vector3(data.shotTargetPos[0], data.shotTargetPos[1], data.shotTargetPos[2]);
+                    spawnLaserBeam(startVec, endVec, 0xfbbf24);
+                    sfx.playAK47Shot(true);
+                }
+            }
+        }
+
+        function removeRemotePlayerMesh(uid) {
+            const rp = remotePlayers[uid];
+            if (rp) {
+                scene.remove(rp.mesh);
+                delete remotePlayers[uid];
+            }
+        }
+
+        // ==========================================
+        // 6. УМНЫЙ ТАКТИЧЕСКИЙ ИИ БОТОВ (Обход стен, Стрейф, Укрытия)
+        // ==========================================
+        const BOT_NAMES = ['Волк-7 [БОТ]', 'Беркут [БОТ]', 'Фантом [БОТ]', 'Кобра [БОТ]', 'Титан [БОТ]'];
+        const SPAWN_POINTS = [
+            new THREE.Vector3(-26, 0, -26),
+            new THREE.Vector3(26, 0, -26),
+            new THREE.Vector3(-26, 0, 26),
+            new THREE.Vector3(26, 0, 26),
+            new THREE.Vector3(0, 0, -29),
+            new THREE.Vector3(-29, 0, 0),
+            new THREE.Vector3(29, 0, 0)
+        ];
+
+        function syncBotsCount(targetCount) {
+            state.desiredBotsCount = targetCount;
+            document.getElementById('bots-count-label').textContent = `Боты: ${targetCount}`;
+            document.getElementById('select-bots').value = String(targetCount);
+
+            while (aiBots.length > targetCount) {
+                const removed = aiBots.pop();
+                scene.remove(removed.mesh);
+            }
+
+            while (aiBots.length < targetCount) {
+                const idx = aiBots.length;
+                const botId = `bot_${idx}`;
+                const botName = BOT_NAMES[idx % BOT_NAMES.length];
+                const mesh = createCharacterMesh(0xf43f5e, botId, true);
+                const spawn = SPAWN_POINTS[idx % SPAWN_POINTS.length].clone();
+                resolveEntityCollisions(spawn, 0.55, 0, 1.8);
+                mesh.position.copy(spawn);
+                scene.add(mesh);
+
+                const botObj = {
+                    id: botId,
+                    name: botName,
+                    mesh,
+                    hp: 100,
+                    kills: 0,
+                    deaths: 0,
+                    aiState: 'ПАТРУЛЬ',
+                    patrolTarget: tacticalWaypoints[(idx * 3 + 2) % tacticalWaypoints.length].clone(),
+                    strafeDir: idx % 2 === 0 ? 1 : -1,
+                    nextStrafeSwitch: performance.now() + 1400,
+                    burstShotsRemaining: 0,
+                    nextBurstTime: performance.now() + 1000,
+                    lastShotAt: 0,
+                    walkPhase: Math.random() * 10,
+                    stuckTimer: 0,
+                    lastPos: spawn.clone()
+                };
+                updateOverheadLabel(mesh.userData.labelSprite, botObj.name, botObj.hp, '#f43f5e', botObj.aiState);
+                aiBots.push(botObj);
+            }
+            updateScoreboardUI();
+        }
+
+        // Поиск ближайшей точки за колонной/стеной, которая закрывает бота от линии огня игрока
+        function findCoverPointFromPlayer(botPos, playerPos) {
+            let bestSpot = null;
+            let bestScore = Infinity;
+
+            for (const c of arenaColliders) {
+                if (!c.isCover) continue;
+                const colCenter = new THREE.Vector3(c.cx, 0, c.cz);
+                // Направление от игрока сквозь центр препятствия (точка в тени укрытия)
+                const awayDir = new THREE.Vector3().subVectors(colCenter, playerPos);
+                awayDir.y = 0;
+                if (awayDir.lengthSq() < 0.1) continue;
+                awayDir.normalize();
+
+                const offsetDist = Math.max(c.w, c.d) * 0.65 + 1.3;
+                const candidate = colCenter.clone().addScaledVector(awayDir, offsetDist);
+                candidate.x = Math.max(-32, Math.min(32, candidate.x));
+                candidate.z = Math.max(-32, Math.min(32, candidate.z));
+
+                const dToBot = candidate.distanceTo(botPos);
+                if (dToBot < bestScore) {
+                    bestScore = dToBot;
+                    bestSpot = candidate;
+                }
+            }
+            return bestSpot || tacticalWaypoints[Math.floor(Math.random() * tacticalWaypoints.length)].clone();
+        }
+
+        // Рулевое управление бота с 3-лучевыми "усами" (Whisker Raycasting) для плавного обхода стен
+        const feelerRay = new THREE.Raycaster();
+        function computeSmartBotMoveDirection(botPos, desiredDir) {
+            const origin = botPos.clone().add(new THREE.Vector3(0, 1.0, 0));
+            const checkDist = 2.6;
+
+            feelerRay.set(origin, desiredDir);
+            feelerRay.near = 0.1;
+            feelerRay.far = checkDist;
+            const centerHit = feelerRay.intersectObjects(shootableObstacleMeshes, false);
+
+            if (centerHit.length === 0) {
+                return desiredDir;
+            }
+
+            // Если впереди препятствие, проверяем лучи под углом +42° и -42°
+            const leftDir = desiredDir.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), 0.75);
+            const rightDir = desiredDir.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), -0.75);
+
+            feelerRay.set(origin, leftDir);
+            const leftHits = feelerRay.intersectObjects(shootableObstacleMeshes, false);
+            const leftClearDist = leftHits.length > 0 ? leftHits[0].distance : checkDist + 1;
+
+            feelerRay.set(origin, rightDir);
+            const rightHits = feelerRay.intersectObjects(shootableObstacleMeshes, false);
+            const rightClearDist = rightHits.length > 0 ? rightHits[0].distance : checkDist + 1;
+
+            if (leftClearDist >= rightClearDist && leftClearDist > 1.1) {
+                return leftDir;
+            } else if (rightClearDist > 1.1) {
+                return rightDir;
+            }
+            // Если оба полубока заняты — разворачиваемся на 95 градусов
+            return desiredDir.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), 1.65);
+        }
+
+        function updateAIBots(dt, now) {
+            const playerEye = camera.position.clone();
+
+            aiBots.forEach((bot) => {
+                const pos = bot.mesh.position;
+                const botEye = pos.clone().add(new THREE.Vector3(0, 1.55, 0));
+                const toPlayer = new THREE.Vector3().subVectors(playerEye, pos);
+                const distToPlayer = toPlayer.length();
+
+                // Проверяем честную прямую видимость до игрока (не сквозь стены!)
+                const canSeePlayer = state.isPlaying && distToPlayer < 42 && hasLineOfSight(botEye, playerEye);
+
+                let prevState = bot.aiState;
+                let moveVec = new THREE.Vector3();
+                let moveSpeed = 5.0;
+
+                if (bot.hp < 35 && state.isPlaying) {
+                    // ТАКТИКА 1: Мало ХП -> Отступаем за ближайшее укрытие!
+                    bot.aiState = 'В УКРЫТИЕ';
+                    moveSpeed = 6.2;
+                    if (canSeePlayer || pos.distanceTo(bot.patrolTarget) < 1.8) {
+                        bot.patrolTarget.copy(findCoverPointFromPlayer(pos, playerEye));
+                    }
+                    const dirToCover = new THREE.Vector3().subVectors(bot.patrolTarget, pos);
+                    dirToCover.y = 0;
+                    if (dirToCover.lengthSq() > 0.2) {
+                        dirToCover.normalize();
+                        moveVec.copy(computeSmartBotMoveDirection(pos, dirToCover));
+                    }
+                } else if (canSeePlayer) {
+                    // ТАКТИКА 2: Видит игрока -> Боевой стрейф влево/вправо и прицельная стрельба очередями
+                    bot.aiState = 'БОЙ / СТРЕЙФ';
+                    moveSpeed = 4.8;
+
+                    if (now > bot.nextStrafeSwitch) {
+                        bot.strafeDir *= -1;
+                        bot.nextStrafeSwitch = now + 1100 + Math.random() * 900;
+                    }
+
+                    const forwardToPl = new THREE.Vector3(toPlayer.x, 0, toPlayer.z).normalize();
+                    const strafeVec = new THREE.Vector3(-forwardToPl.z * bot.strafeDir, 0, forwardToPl.x * bot.strafeDir);
+
+                    // Поддерживаем оптимальную дистанцию боя (10–18 метров)
+                    if (distToPlayer > 18) {
+                        strafeVec.addScaledVector(forwardToPl, 0.65);
+                    } else if (distToPlayer < 8.5) {
+                        strafeVec.addScaledVector(forwardToPl, -0.65);
+                    }
+                    strafeVec.normalize();
+                    moveVec.copy(computeSmartBotMoveDirection(pos, strafeVec));
+                } else {
+                    // ТАКТИКА 3: Патрулирование тактических точек арены
+                    bot.aiState = 'ПАТРУЛЬ';
+                    moveSpeed = 5.2;
+                    const dirToWp = new THREE.Vector3().subVectors(bot.patrolTarget, pos);
+                    dirToWp.y = 0;
+                    if (dirToWp.length() < 2.0) {
+                        const nextWp = tacticalWaypoints[Math.floor(Math.random() * tacticalWaypoints.length)];
+                        bot.patrolTarget.copy(nextWp);
+                    } else {
+                        dirToWp.normalize();
+                        moveVec.copy(computeSmartBotMoveDirection(pos, dirToWp));
+                    }
+                }
+
+                if (prevState !== bot.aiState) {
+                    updateOverheadLabel(bot.mesh.userData.labelSprite, bot.name, bot.hp, '#f43f5e', bot.aiState);
+                }
+
+                // Применяем перемещение и ЖЕСТКУЮ КОЛЛИЗИЮ со всеми стенами и ящиками
+                pos.x += moveVec.x * moveSpeed * dt;
+                pos.z += moveVec.z * moveSpeed * dt;
+                pos.y = getFloorHeightAt(pos.x, pos.z, pos.y);
+                resolveEntityCollisions(pos, 0.55, pos.y, 1.8);
+
+                // Анти-застревание: если бот почти не сдвинулся за 0.6 сек, меняем маршрут и направление стрейфа
+                if (pos.distanceToSquared(bot.lastPos) < 0.002) {
+                    bot.stuckTimer += dt;
+                    if (bot.stuckTimer > 0.55) {
+                        bot.strafeDir *= -1;
+                        bot.patrolTarget.copy(tacticalWaypoints[Math.floor(Math.random() * tacticalWaypoints.length)]);
+                        bot.stuckTimer = 0;
+                    }
+                } else {
+                    bot.stuckTimer = 0;
+                    bot.lastPos.copy(pos);
+                }
+
+                // Анимация шагов бота
+                bot.walkPhase += dt * 9;
+                bot.mesh.userData.leftLeg.position.z = Math.sin(bot.walkPhase) * 0.18;
+                bot.mesh.userData.rightLeg.position.z = -Math.sin(bot.walkPhase) * 0.18;
+
+                // Поворот и стрельба очередями по 3 патрона (только при прямой видимости!)
+                if (canSeePlayer) {
+                    const desiredYaw = Math.atan2(-toPlayer.x, -toPlayer.z);
+                    bot.mesh.rotation.y = desiredYaw;
+
+                    if (now > bot.nextBurstTime && bot.burstShotsRemaining <= 0) {
+                        bot.burstShotsRemaining = 3; // Очередь из 3 выстрелов АК-47
+                        bot.nextBurstTime = now + 1500 + Math.random() * 750;
+                    }
+
+                    if (bot.burstShotsRemaining > 0 && now - bot.lastShotAt > 155) {
+                        bot.lastShotAt = now;
+                        bot.burstShotsRemaining--;
+
+                        const spread = new THREE.Vector3(
+                            (Math.random() - 0.5) * 1.9,
+                            (Math.random() - 0.5) * 1.3,
+                            (Math.random() - 0.5) * 1.9
+                        );
+                        const shotEnd = playerEye.clone().add(spread);
+                        spawnLaserBeam(botEye, shotEnd, 0xf43f5e);
+                        sfx.playAK47Shot(true);
+
+                        const hitChance = Math.max(0.14, 0.44 - distToPlayer / 75);
+                        if (Math.random() < hitChance) {
+                            applyDamageToLocalPlayer(10, bot.name);
+                        }
+                    }
+                } else if (moveVec.lengthSq() > 0.01) {
+                    bot.mesh.rotation.y = Math.atan2(-moveVec.x, -moveVec.z);
+                }
+            });
+        }
+
+        // ==========================================
+        // 7. СТРЕЛЬБА АВТОМАТОМ АК-47 (Одиночные + Автоматический огонь)
+        // ==========================================
+        let playerYaw = 0;
+        let playerPitch = 0;
+        const playerVelocity = new THREE.Vector3();
+        let isGrounded = true;
+        let isAimingADS = false;
+        let isFiring = false; // Флаг зажатия кнопки огня для автоматической очереди АК-47
+        let weaponRecoilOffset = 0;
+        let weaponPitchKick = 0;
+        let boltCarrierKick = 0;
+        let walkBobTimer = 0;
+
+        const keys = { w: false, a: false, s: false, d: false, space: false, shift: false };
+
+        window.addEventListener('keydown', (e) => {
+            if (document.activeElement && ['INPUT', 'SELECT'].includes(document.activeElement.tagName)) return;
+            const code = e.code;
+            if (code === 'KeyW' || code === 'ArrowUp') keys.w = true;
+            if (code === 'KeyS' || code === 'ArrowDown') keys.s = true;
+            if (code === 'KeyA' || code === 'ArrowLeft') keys.a = true;
+            if (code === 'KeyD' || code === 'ArrowRight') keys.d = true;
+            if (code === 'Space') keys.space = true;
+            if (code === 'ShiftLeft' || code === 'ShiftRight') keys.shift = true;
+            if (code === 'KeyR') triggerReload();
+        });
+
+        window.addEventListener('keyup', (e) => {
+            const code = e.code;
+            if (code === 'KeyW' || code === 'ArrowUp') keys.w = false;
+            if (code === 'KeyS' || code === 'ArrowDown') keys.s = false;
+            if (code === 'KeyA' || code === 'ArrowLeft') keys.a = false;
+            if (code === 'KeyD' || code === 'ArrowRight') keys.d = false;
+            if (code === 'Space') keys.space = false;
+            if (code === 'ShiftLeft' || code === 'ShiftRight') keys.shift = false;
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (document.pointerLockElement !== canvas) return;
+            const sensitivity = isAimingADS ? 0.0012 : 0.0022;
+            playerYaw -= e.movementX * sensitivity;
+            playerPitch -= e.movementY * sensitivity;
+            const maxPitch = Math.PI / 2 - 0.08;
+            playerPitch = Math.max(-maxPitch, Math.min(maxPitch, playerPitch));
+        });
+
+        // Нажатие мыши: захват курсора + старт стрельбы очередью
+        window.addEventListener('mousedown', (e) => {
+            if (!state.isPlaying) return;
+            // Если кликнули по кнопкам верхнего HUD — не перехватываем
+            if (e.target && e.target.closest && e.target.closest('button, input, select, #lobby-modal, #guide-modal')) {
+                return;
+            }
+            if (document.pointerLockElement !== canvas) {
+                canvas.requestPointerLock?.();
+            }
+            if (e.button === 0) {
+                sfx.init();
+                isFiring = true;
+                fireWeapon();
+            } else if (e.button === 2) {
+                isAimingADS = true;
+            }
+        });
+
+        window.addEventListener('mouseup', (e) => {
+            if (e.button === 0) isFiring = false;
+            if (e.button === 2) isAimingADS = false;
+        });
+
+        window.addEventListener('blur', () => {
+            isFiring = false;
+            isAimingADS = false;
+            keys.w = keys.a = keys.s = keys.d = keys.space = keys.shift = false;
+        });
+
+        window.addEventListener('contextmenu', (e) => e.preventDefault());
+
+        document.addEventListener('pointerlockchange', () => {
+            if (document.pointerLockElement === canvas) {
+                state.isPlaying = true;
+                document.getElementById('lobby-modal').classList.add('hidden');
+            } else {
+                isFiring = false;
+                isAimingADS = false;
+                if (document.getElementById('guide-modal').classList.contains('hidden')) {
+                    state.isPlaying = false;
+                    document.getElementById('lobby-modal').classList.remove('hidden');
+                }
+            }
+        });
+
+        // Перезарядка АК-47 с анимацией отстегивания рожка и передергиванием затвора
+        function triggerReload() {
+            if (state.isReloading || state.ammo >= state.maxAmmo) return;
+            state.isReloading = true;
+            state.reloadStartTime = performance.now();
+            isFiring = false;
+
+            sfx.playReloadClick(240);
+            setTimeout(() => { if (state.isReloading) sfx.playReloadClick(340); }, 650);
+            setTimeout(() => { if (state.isReloading) sfx.playReloadClick(520); }, 1200);
+
+            showCenterBanner('ПЕРЕЗАРЯДКА АК-47...', 'Смена магазина 7.62×39мм', state.reloadDuration);
+            document.getElementById('reload-hint').textContent = 'Перезарядка...';
+
+            setTimeout(() => {
+                state.ammo = state.maxAmmo;
+                state.isReloading = false;
+                // Возвращаем магазин и затвор в исходное положение
+                if (weaponGroup.userData.magGroup) {
+                    weaponGroup.userData.magGroup.position.set(0, -0.04, -0.085);
+                    weaponGroup.userData.magGroup.rotation.set(0, 0, 0);
+                }
+                document.getElementById('hud-ammo-current').textContent = state.ammo;
+                document.getElementById('reload-hint').textContent = '[R] Сменить рожок';
+            }, state.reloadDuration);
+        }
+
+        // Выстрел из АК-47 (вызывается и при клике, и в цикле animateLoop при зажатой ЛКМ)
+        const raycaster = new THREE.Raycaster();
+        function fireWeapon() {
+            if (!state.isPlaying || state.isReloading) return;
+
+            const nowPerf = performance.now();
+            if (nowPerf - state.lastFirePerfTime < state.fireIntervalMs) return;
+
+            if (state.ammo <= 0) {
+                triggerReload();
+                return;
+            }
+
+            // Фиксируем таймер в performance.now(), чтобы стрельба работала безотказно!
+            state.lastFirePerfTime = nowPerf;
+            state.lastShotTime = Date.now();
+            state.ammo--;
+            document.getElementById('hud-ammo-current').textContent = state.ammo;
+
+            // Звук, отдача, ход затворной рамы и выброс гильзы
+            sfx.playAK47Shot(false);
+            weaponRecoilOffset = Math.min(0.11, weaponRecoilOffset + 0.055);
+            weaponPitchKick = Math.min(0.08, weaponPitchKick + 0.025);
+            boltCarrierKick = 0.095;
+            playerPitch = Math.min(Math.PI / 2 - 0.08, playerPitch + (isAimingADS ? 0.0045 : 0.008));
+            playerYaw += (Math.random() - 0.5) * (isAimingADS ? 0.003 : 0.007);
+
+            spawnShellCasing();
+
+            // Вспышка выстрела и динамическая подсветка
+            const flash = weaponGroup.userData.muzzleFlash;
+            const mLight = weaponGroup.userData.muzzleLight;
+            if (flash) {
+                flash.material.opacity = 1;
+                flash.rotation.z = Math.random() * Math.PI;
+            }
+            if (mLight) mLight.intensity = 2.8;
+            setTimeout(() => {
+                if (flash) flash.material.opacity = 0;
+                if (mLight) mLight.intensity = 0;
+            }, 48);
+
+            expandCrosshairBriefly();
+
+            // Формируем строго очищенный список Mesh-объектов для Raycaster
+            const targetMeshes = [];
+            for (let i = 0; i < shootableObstacleMeshes.length; i++) {
+                if (shootableObstacleMeshes[i]) targetMeshes.push(shootableObstacleMeshes[i]);
+            }
+            aiBots.forEach(b => {
+                if (b.mesh && b.mesh.userData) {
+                    targetMeshes.push(b.mesh.userData.hitbox, b.mesh.userData.head, b.mesh.userData.torso);
+                }
+            });
+            Object.values(remotePlayers).forEach(rp => {
+                if (rp.mesh && rp.mesh.userData) {
+                    targetMeshes.push(rp.mesh.userData.hitbox, rp.mesh.userData.head, rp.mesh.userData.torso);
+                }
+            });
+
+            // Небольшой разброс при стрельбе от бедра и высокая точность в прицеле (ПКМ)
+            const spreadAmount = isAimingADS ? 0.003 : 0.014;
+            const aimCoords = new THREE.Vector2(
+                (Math.random() - 0.5) * spreadAmount,
+                (Math.random() - 0.5) * spreadAmount
+            );
+            raycaster.setFromCamera(aimCoords, camera);
+
+            let endPoint = new THREE.Vector3();
+            raycaster.ray.at(90, endPoint);
+
+            try {
+                const intersects = raycaster.intersectObjects(targetMeshes, false);
+                if (intersects.length > 0) {
+                    const hit = intersects[0];
+                    endPoint.copy(hit.point);
+
+                    const uData = hit.object.userData;
+                    if (uData && uData.isCharacterHitbox) {
+                        const dmg = uData.isHeadshot ? 80 : 28; // АК-47 калибра 7.62мм наносит мощный урон
+                        triggerHitMarkerUI(uData.isHeadshot);
+
+                        if (uData.isBot) {
+                            damageAIBot(uData.entityId, dmg, uData.isHeadshot);
+                        } else {
+                            damageRemotePlayer(uData.entityId, dmg);
+                        }
+                    }
+                }
+            } catch (err) {
+                console.error('Ошибка проверки попадания:', err);
+            }
+
+            const barrelWorldPos = new THREE.Vector3();
+            weaponGroup.userData.muzzleFlash.getWorldPosition(barrelWorldPos);
+            spawnLaserBeam(barrelWorldPos, endPoint, 0xfbbf24);
+
+            state.shotTargetPos = [
+                Number(endPoint.x.toFixed(2)),
+                Number(endPoint.y.toFixed(2)),
+                Number(endPoint.z.toFixed(2))
+            ];
+            broadcastLocalPlayerState();
+
+            if (state.ammo <= 0) {
+                triggerReload();
+            }
+        }
+
+        function damageAIBot(botId, dmg, isHeadshot) {
+            const bot = aiBots.find(b => b.id === botId);
+            if (!bot) return;
+
+            bot.hp -= dmg;
+            if (bot.hp <= 0) {
+                state.kills++;
+                bot.deaths++;
+                sfx.playKill();
+                addKillFeedItem(state.nickname, bot.name, isHeadshot);
+
+                bot.hp = 100;
+                bot.aiState = 'ПАТРУЛЬ';
+                const sp = SPAWN_POINTS[Math.floor(Math.random() * SPAWN_POINTS.length)].clone();
+                resolveEntityCollisions(sp, 0.55, 0, 1.8);
+                bot.mesh.position.copy(sp);
+                updateScoreboardUI();
+                broadcastLocalPlayerState();
+            }
+            updateOverheadLabel(bot.mesh.userData.labelSprite, bot.name, bot.hp, '#f43f5e', bot.aiState);
+        }
+
+        function damageRemotePlayer(targetUid, dmg) {
+            const rp = remotePlayers[targetUid];
+            if (!rp) return;
+
+            sendNetworkDamage(targetUid, dmg);
+
+            const predictedHp = Math.max(0, (rp.data.hp || 100) - dmg);
+            rp.data.hp = predictedHp;
+            updateOverheadLabel(rp.mesh.userData.labelSprite, rp.data.name || 'Игрок', predictedHp, '#00f3ff', 'ОНЛАЙН');
+
+            if (predictedHp <= 0) {
+                state.kills++;
+                sfx.playKill();
+                addKillFeedItem(state.nickname, rp.data.name || 'Игрок', dmg >= 70);
+                updateScoreboardUI();
+                broadcastLocalPlayerState();
+            }
+        }
+
+        function applyDamageToLocalPlayer(amount, attackerName) {
+            if (state.hp <= 0) return;
+            state.hp = Math.max(0, state.hp - amount);
+            sfx.playHurt();
+            updateHealthHUD();
+
+            const overlay = document.getElementById('damage-overlay');
+            overlay.style.opacity = '1';
+            setTimeout(() => { overlay.style.opacity = '0'; }, 260);
+
+            if (state.hp <= 0) {
+                state.deaths++;
+                addKillFeedItem(attackerName, state.nickname, false);
+                respawnLocalPlayer(attackerName);
+            }
+            broadcastLocalPlayerState();
+        }
+
+        function respawnLocalPlayer(killerName) {
+            showCenterBanner('ВЫ БЫЛИ УСТРАНЕНЫ', `Ликвидировал: ${killerName} • Респавн на базе`, 2200);
+            const sp = SPAWN_POINTS[Math.floor(Math.random() * SPAWN_POINTS.length)];
+            camera.position.set(sp.x, PLAYER_EYE_HEIGHT, sp.z);
+            playerVelocity.set(0, 0, 0);
+            state.hp = 100;
+            state.stamina = 100;
+            state.isExhausted = false;
+            state.ammo = state.maxAmmo;
+            updateHealthHUD();
+            updateStaminaHUD();
+            document.getElementById('hud-ammo-current').textContent = state.ammo;
+            updateScoreboardUI();
+        }
+
+        // ==========================================
+        // 8. ОБНОВЛЕНИЕ HUD ИНТЕРФЕЙСА (Здоровье + Стамина)
+        // ==========================================
+        function updateHealthHUD() {
+            const hpText = document.getElementById('hud-hp-text');
+            const hpBar = document.getElementById('hud-hp-bar');
+            hpText.textContent = state.hp;
+            hpBar.style.width = `${state.hp}%`;
+
+            if (state.hp > 40) {
+                hpText.className = 'font-cyber text-2xl sm:text-3xl font-black text-emerald-400';
+                hpBar.className = 'h-full bg-gradient-to-r from-emerald-500 to-cyan-400 rounded-full transition-all duration-150';
+            } else {
+                hpText.className = 'font-cyber text-2xl sm:text-3xl font-black text-rose-500 animate-pulse';
+                hpBar.className = 'h-full bg-gradient-to-r from-rose-600 to-amber-500 rounded-full transition-all duration-150';
+            }
+        }
+
+        function updateStaminaHUD() {
+            const stBar = document.getElementById('hud-stamina-bar');
+            const stStatus = document.getElementById('hud-stamina-status');
+            const sprintInd = document.getElementById('sprint-indicator');
+
+            const pct = Math.round(state.stamina);
+            stBar.style.width = `${pct}%`;
+
+            if (state.isExhausted) {
+                stStatus.textContent = `УСТАЛОСТЬ (${pct}%)`;
+                stStatus.className = 'font-cyber text-[11px] font-bold text-rose-400 animate-pulse';
+                stBar.className = 'h-full bg-rose-500 rounded-full transition-all duration-75';
+                sprintInd.textContent = 'Отдых до 25%';
+                sprintInd.className = 'text-rose-400 font-semibold';
+            } else {
+                stStatus.textContent = `${pct}%`;
+                stStatus.className = 'font-cyber text-[11px] font-bold text-amber-300';
+                stBar.className = 'h-full bg-gradient-to-r from-amber-500 to-yellow-300 rounded-full transition-all duration-75';
+                sprintInd.textContent = '[SHIFT] Спринт';
+                sprintInd.className = 'text-cyan-400';
+            }
+        }
+
+        function triggerHitMarkerUI(isHeadshot) {
+            sfx.playHitMarker(isHeadshot);
+            const hm = document.getElementById('hit-marker');
+            const l1 = document.getElementById('hm-line-1');
+            const l2 = document.getElementById('hm-line-2');
+            hm.style.opacity = '1';
+            hm.style.transform = isHeadshot ? 'scale(1.45)' : 'scale(1.0)';
+            const colorClass = isHeadshot ? 'bg-amber-300 shadow-[0_0_10px_#fbbf24]' : 'bg-red-500 shadow-[0_0_8px_#ef4444]';
+            l1.className = `absolute w-5 h-0.5 rotate-45 ${colorClass}`;
+            l2.className = `absolute w-5 h-0.5 -rotate-45 ${colorClass}`;
+            setTimeout(() => { hm.style.opacity = '0'; }, 120);
+        }
+
+        function expandCrosshairBriefly() {
+            document.getElementById('ch-top').style.top = '-8px';
+            document.getElementById('ch-bottom').style.bottom = '-8px';
+            document.getElementById('ch-left').style.left = '-8px';
+            document.getElementById('ch-right').style.right = '-8px';
+            setTimeout(() => {
+                document.getElementById('ch-top').style.top = '-4px';
+                document.getElementById('ch-bottom').style.bottom = '-4px';
+                document.getElementById('ch-left').style.left = '-4px';
+                document.getElementById('ch-right').style.right = '-4px';
+            }, 80);
+        }
+
+        function addKillFeedItem(killer, victim, isHeadshot) {
+            const container = document.getElementById('killfeed-container');
+            const el = document.createElement('div');
+            el.className = 'cyber-card px-3 py-1.5 rounded-lg text-[11px] flex items-center gap-1.5 border border-cyan-500/30 animate-fade-in';
+            el.innerHTML = `
+                <span class="font-bold text-cyan-300">${killer}</span>
+                <i class="fa-solid ${isHeadshot ? 'fa-skull-crossbones text-amber-400' : 'fa-gun text-slate-400'}"></i>
+                <span class="font-semibold text-rose-300">${victim}</span>
+            `;
+            container.prepend(el);
+            setTimeout(() => { el.remove(); }, 4500);
+        }
+
+        function showCenterBanner(title, subtitle, durationMs = 1800) {
+            const banner = document.getElementById('center-banner');
+            document.getElementById('center-banner-title').textContent = title;
+            document.getElementById('center-banner-sub').textContent = subtitle;
+            banner.classList.remove('hidden');
+            setTimeout(() => { banner.classList.add('hidden'); }, durationMs);
+        }
+
+        function updateScoreboardUI() {
+            const listEl = document.getElementById('scoreboard-list');
+            const rows = [];
+
+            rows.push({
+                name: `${state.nickname} (Вы)`,
+                kills: state.kills,
+                deaths: state.deaths,
+                isMe: true,
+                isBot: false
+            });
+
+            Object.values(remotePlayers).forEach(rp => {
+                rows.push({
+                    name: rp.data.name || 'Игрок',
+                    kills: rp.data.kills || 0,
+                    deaths: rp.data.deaths || 0,
+                    isMe: false,
+                    isBot: false
+                });
+            });
+
+            aiBots.forEach(b => {
+                rows.push({
+                    name: b.name,
+                    kills: b.kills,
+                    deaths: b.deaths,
+                    isMe: false,
+                    isBot: true
+                });
+            });
+
+            rows.sort((a, b) => b.kills - a.kills);
+
+            listEl.innerHTML = rows.map(r => `
+                <div class="flex items-center justify-between px-2 py-1 rounded ${r.isMe ? 'bg-cyan-500/20 border border-cyan-500/40' : 'bg-slate-900/50'}">
+                    <span class="truncate max-w-[140px] ${r.isMe ? 'font-bold text-cyan-300' : r.isBot ? 'text-rose-300' : 'text-slate-200'}">
+                        ${r.name}
+                    </span>
+                    <span class="font-cyber font-bold text-slate-300">${r.kills} / ${r.deaths}</span>
+                </div>
+            `).join('');
+        }
+
+        // ==========================================
+        // 9. ГЛАВНЫЙ ЦИКЛ ИГРЫ (Движение, Стамина, Авто-огонь, Анимация АК-47)
+        // ==========================================
+        let prevTime = performance.now();
+        function animateLoop() {
+            requestAnimationFrame(animateLoop);
+
+            const now = performance.now();
+            const dt = Math.min((now - prevTime) / 1000, 0.1);
+            prevTime = now;
+
+            // Если зажата левая кнопка мыши — ведем непрерывный автоматический огонь АК-47!
+            if (state.isPlaying && isFiring && !state.isReloading) {
+                fireWeapon();
+            }
+
+            // Ориентация камеры
+            camera.rotation.order = 'YXZ';
+            camera.rotation.y = playerYaw;
+            camera.rotation.x = playerPitch;
+
+            let isSprintingNow = false;
+
+            if (state.isPlaying) {
+                const forward = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), playerYaw);
+                const right = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), playerYaw);
+
+                const moveDir = new THREE.Vector3();
+                if (keys.w) moveDir.add(forward);
+                if (keys.s) moveDir.sub(forward);
+                if (keys.d) moveDir.add(right);
+                if (keys.a) moveDir.sub(right);
+                const isMoving = moveDir.lengthSq() > 0;
+                if (isMoving) moveDir.normalize();
+
+                // Логика Стамины (Выносливости) при беге на SHIFT
+                if (keys.shift && isMoving && !state.isExhausted && !isAimingADS) {
+                    isSprintingNow = true;
+                    state.stamina = Math.max(0, state.stamina - 28 * dt);
+                    if (state.stamina <= 0) {
+                        state.stamina = 0;
+                        state.isExhausted = true;
+                        showCenterBanner('ВЫНОСЛИВОСТЬ ИСЧЕРПАНА', 'Восстановите дыхание до 25% для спринта', 1400);
+                    }
+                } else {
+                    const regenRate = isMoving ? 17 : 26;
+                    state.stamina = Math.min(state.maxStamina, state.stamina + regenRate * dt);
+                    if (state.isExhausted && state.stamina >= 25) {
+                        state.isExhausted = false;
+                    }
+                }
+                updateStaminaHUD();
+
+                const moveSpeed = isSprintingNow ? 12.2 : (isAimingADS ? 4.8 : 7.4);
+                const currentFeetY = camera.position.y - PLAYER_EYE_HEIGHT;
+
+                camera.position.x += moveDir.x * moveSpeed * dt;
+                camera.position.z += moveDir.z * moveSpeed * dt;
+
+                // Выталкиваем игрока из любых стен и ящиков
+                resolveEntityCollisions(camera.position, 0.48, currentFeetY, 1.75);
+
+                // Прыжок и гравитация
+                if (keys.space && isGrounded) {
+                    playerVelocity.y = 8.4;
+                    isGrounded = false;
+                }
+                playerVelocity.y -= 21.0 * dt;
+                camera.position.y += playerVelocity.y * dt;
+
+                const groundY = getFloorHeightAt(camera.position.x, camera.position.z, camera.position.y - PLAYER_EYE_HEIGHT);
+                if (camera.position.y <= groundY + PLAYER_EYE_HEIGHT) {
+                    camera.position.y = groundY + PLAYER_EYE_HEIGHT;
+                    playerVelocity.y = 0;
+                    isGrounded = true;
+                }
+
+                if (isMoving && isGrounded) {
+                    walkBobTimer += dt * (isSprintingNow ? 14 : 9);
+                } else {
+                    walkBobTimer = 0;
+                }
+            }
+
+            // Динамический FOV (Прицел ПКМ vs Спринт)
+            const targetFov = isAimingADS ? 46 : (isSprintingNow ? 82 : 75);
+            if (Math.abs(camera.fov - targetFov) > 0.15) {
+                camera.fov += (targetFov - camera.fov) * 12 * dt;
+                camera.updateProjectionMatrix();
+            }
+
+            // Анимация оружия АК-47 (отдача, затвор, прицеливание по мушке, спринт и смена рожка)
+            weaponRecoilOffset = Math.max(0, weaponRecoilOffset - dt * 0.65);
+            weaponPitchKick = Math.max(0, weaponPitchKick - dt * 0.45);
+            boltCarrierKick = Math.max(0, boltCarrierKick - dt * 0.85);
+
+            if (weaponGroup.userData.boltGroup) {
+                weaponGroup.userData.boltGroup.position.z = boltCarrierKick;
+            }
+
+            // Прицеливание прямо по мушке и целику АК-47 при зажатии ПКМ
+            const targetWepX = isAimingADS ? 0.0 : 0.24 + Math.cos(walkBobTimer) * 0.012;
+            const targetWepY = (isAimingADS ? -0.078 : -0.22) + Math.abs(Math.sin(walkBobTimer)) * 0.014;
+            const targetWepZ = (isAimingADS ? -0.26 : -0.42) + weaponRecoilOffset;
+
+            weaponGroup.position.x += (targetWepX - weaponGroup.position.x) * 16 * dt;
+            weaponGroup.position.y += (targetWepY - weaponGroup.position.y) * 16 * dt;
+            weaponGroup.position.z += (targetWepZ - weaponGroup.position.z) * 20 * dt;
+
+            let targetRotX = weaponPitchKick;
+            let targetRotY = 0;
+            let targetRotZ = 0;
+
+            if (state.isReloading) {
+                // Процедурная анимация перезарядки АК-47 (наклон автомата, выемка рожка и передергивание затвора)
+                const progress = Math.min(1, (now - state.reloadStartTime) / state.reloadDuration);
+                targetRotX = 0.28;
+                targetRotZ = 0.38;
+                targetRotY = 0.18;
+
+                const mag = weaponGroup.userData.magGroup;
+                if (mag) {
+                    if (progress < 0.35) {
+                        const p = progress / 0.35;
+                        mag.position.y = -0.04 - p * 0.22;
+                        mag.rotation.x = -p * 0.6;
+                    } else if (progress < 0.72) {
+                        const p = (progress - 0.35) / 0.37;
+                        mag.position.y = -0.26 + p * 0.22;
+                        mag.rotation.x = -0.6 * (1 - p);
+                    } else {
+                        mag.position.set(0, -0.04, -0.085);
+                        mag.rotation.set(0, 0, 0);
+                        // Передергивание затворной рамы в конце перезарядки
+                        if (weaponGroup.userData.boltGroup) {
+                            const boltP = Math.sin(((progress - 0.72) / 0.28) * Math.PI);
+                            weaponGroup.userData.boltGroup.position.z = boltP * 0.11;
+                        }
+                    }
+                }
+            } else if (isSprintingNow && !isFiring) {
+                // Тактический хват АК-47 при спринте
+                targetRotX = -0.18;
+                targetRotY = 0.42;
+                targetRotZ = -0.22;
+            }
+
+            weaponGroup.rotation.x += (targetRotX - weaponGroup.rotation.x) * 14 * dt;
+            weaponGroup.rotation.y += (targetRotY - weaponGroup.rotation.y) * 14 * dt;
+            weaponGroup.rotation.z += (targetRotZ - weaponGroup.rotation.z) * 14 * dt;
+
+            // Обновление летящих гильз
+            for (let i = activeShellCasings.length - 1; i >= 0; i--) {
+                const s = activeShellCasings[i];
+                const age = now - s.createdAt;
+                if (age > 900) {
+                    scene.remove(s.mesh);
+                    activeShellCasings.splice(i, 1);
+                } else {
+                    s.vel.y -= 16 * dt;
+                    s.mesh.position.addScaledVector(s.vel, dt);
+                    s.mesh.rotation.x += s.rotVel.x * dt;
+                    s.mesh.rotation.y += s.rotVel.y * dt;
+                    if (s.mesh.position.y < 0.03) {
+                        s.mesh.position.y = 0.03;
+                        s.vel.y *= -0.35;
+                        s.vel.x *= 0.6;
+                        s.vel.z *= 0.6;
+                    }
+                }
+            }
+
+            // Плавная интерполяция онлайн-игроков
+            Object.values(remotePlayers).forEach((rp) => {
+                rp.mesh.position.lerp(rp.targetPos, Math.min(1, dt * 10));
+                rp.mesh.rotation.y = rp.targetYaw;
+            });
+
+            // Обновление умных ИИ-ботов
+            updateAIBots(dt, now);
+
+            // Очистка отработавших трассеров
+            for (let i = activeLaserBeams.length - 1; i >= 0; i--) {
+                const b = activeLaserBeams[i];
+                const age = now - b.createdAt;
+                if (age > 95) {
+                    scene.remove(b.line);
+                    scene.remove(b.spark);
+                    b.line.geometry.dispose();
+                    b.line.material.dispose();
+                    activeLaserBeams.splice(i, 1);
+                } else {
+                    b.line.material.opacity = 1 - age / 95;
+                }
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        // ==========================================
+        // 10. ОБРАБОТЧИКИ UI КНОПОК И МОБИЛЬНОГО УПРАВЛЕНИЯ
+        // ==========================================
+        class SoundFX {
+            constructor() {
+                this.ctx = null;
+            }
+            init() {
+                if (!this.ctx) {
+                    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                    if (AudioCtx) this.ctx = new AudioCtx();
+                }
+                if (this.ctx && this.ctx.state === 'suspended') {
+                    this.ctx.resume();
+                }
+            }
+            playLaser(isBot = false) {
+                if (!this.ctx) return;
+                try {
+                    const now = this.ctx.currentTime;
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.type = isBot ? 'sawtooth' : 'triangle';
+                    osc.frequency.setValueAtTime(isBot ? 420 : 780, now);
+                    osc.frequency.exponentialRampToValueAtTime(85, now + 0.14);
+
+                    gain.gain.setValueAtTime(isBot ? 0.08 : 0.22, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+
+                    osc.connect(gain);
+                    gain.connect(this.ctx.destination);
+                    osc.start(now);
+                    osc.stop(now + 0.15);
+                } catch (e) {}
+            }
+            playHitMarker() {
+                if (!this.ctx) return;
+                try {
+                    const now = this.ctx.currentTime;
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(1350, now);
+                    osc.frequency.setValueAtTime(1900, now + 0.03);
+                    gain.gain.setValueAtTime(0.25, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
+                    osc.connect(gain);
+                    gain.connect(this.ctx.destination);
+                    osc.start(now);
+                    osc.stop(now + 0.09);
+                } catch (e) {}
+            }
+            playKill() {
+                if (!this.ctx) return;
+                try {
+                    const now = this.ctx.currentTime;
+                    [523.25, 659.25, 783.99, 1046.5].forEach((freq, idx) => {
+                        const osc = this.ctx.createOscillator();
+                        const gain = this.ctx.createGain();
+                        osc.type = 'triangle';
+                        osc.frequency.setValueAtTime(freq, now + idx * 0.055);
+                        gain.gain.setValueAtTime(0.18, now + idx * 0.055);
+                        gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.055 + 0.2);
+                        osc.connect(gain);
+                        gain.connect(this.ctx.destination);
+                        osc.start(now + idx * 0.055);
+                        osc.stop(now + idx * 0.055 + 0.2);
+                    });
+                } catch (e) {}
+            }
+            playReload() {
+                if (!this.ctx) return;
+                try {
+                    const now = this.ctx.currentTime;
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.type = 'square';
+                    osc.frequency.setValueAtTime(220, now);
+                    osc.frequency.setValueAtTime(330, now + 0.15);
+                    gain.gain.setValueAtTime(0.1, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+                    osc.connect(gain);
+                    gain.connect(this.ctx.destination);
+                    osc.start(now);
+                    osc.stop(now + 0.3);
+                } catch (e) {}
+            }
+            playHurt() {
+                if (!this.ctx) return;
+                try {
+                    const now = this.ctx.currentTime;
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(140, now);
+                    osc.frequency.linearRampToValueAtTime(55, now + 0.2);
+                    gain.gain.setValueAtTime(0.25, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+                    osc.connect(gain);
+                    gain.connect(this.ctx.destination);
+                    osc.start(now);
+                    osc.stop(now + 0.22);
+                } catch (e) {}
+            }
+        }
+        const sfx = new SoundFX();
+
+        // ==========================================
+        // 2. СОСТОЯНИЕ ИГРЫ И FIREBASE СИНХРОНИЗАЦИЯ
+        // ==========================================
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'cyber-arena-fps';
+        let db = null;
+        let auth = null;
+        let currentUser = null;
+        let unsubscribeRoom = null;
+        let syncInterval = null;
+
+        const state = {
+            isPlaying: false,
+            nickname: 'КиберБоец_' + Math.floor(100 + Math.random() * 899),
+            roomId: 'ARENA-1',
+            hp: 100,
+            maxHp: 100,
+            ammo: 30,
+            maxAmmo: 30,
+            isReloading: false,
+            kills: 0,
+            deaths: 0,
+            color: '#00f3ff',
+            lastShotTime: 0,
+            shotTargetPos: null,
+            lastProcessedDamageToken: '',
+            desiredBotsCount: 3
+        };
+
+        document.getElementById('input-nickname').value = state.nickname;
+
+        // Инициализация Firebase с соблюдением всех 3 правил
+        async function initFirebaseSystem(customConfigObj = null) {
+            const statusEl = document.getElementById('auth-status-bar');
+            try {
+                let configToUse = customConfigObj;
+                if (!configToUse && typeof __firebase_config !== 'undefined' && __firebase_config) {
+                    configToUse = JSON.parse(__firebase_config);
+                }
+
+                if (!configToUse) {
+                    statusEl.innerHTML = `<span class="text-amber-400"><i class="fa-solid fa-triangle-exclamation"></i> Автономный режим с ИИ-ботами (для онлайна на своем хостинге укажите Firebase конфиг)</span>`;
+                    document.getElementById('net-status-dot').className = 'w-2.5 h-2.5 rounded-full bg-amber-400';
+                    return;
+                }
+
+                const app = initializeApp(configToUse, customConfigObj ? 'custom-' + Date.now() : undefined);
+                auth = getAuth(app);
+                db = getFirestore(app);
+
+                // ПРАВИЛО 3: Сначала выполняем авторизацию и ожидаем её завершения
+                if (!customConfigObj && typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await signInWithCustomToken(auth, __initial_auth_token);
+                } else {
+                    await signInAnonymously(auth);
+                }
+
+                onAuthStateChanged(auth, (user) => {
+                    currentUser = user;
+                    if (user) {
+                        statusEl.innerHTML = `<span class="text-emerald-400"><i class="fa-solid fa-circle-check"></i> Облачный сервер подключен (ID: ${user.uid.slice(0, 8)}...)</span>`;
+                        document.getElementById('net-status-dot').className = 'w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse';
+                        joinMultiplayerRoom(state.roomId);
+                    }
+                });
+            } catch (err) {
+                console.error('Ошибка инициализации сети:', err);
+                statusEl.innerHTML = `<span class="text-amber-400"><i class="fa-solid fa-robot"></i> Локальный режим с ботами активен</span>`;
+            }
+        }
+
+        // Санитизация названия коллекции комнаты (ПРАВИЛО 1)
+        function getRoomCollectionName(roomRaw) {
+            const clean = (roomRaw || 'ARENA1').replace(/[^a-zA-Z0-9_-]/g, '').toUpperCase() || 'ARENA1';
+            return `cyberfps_room_${clean}`;
+        }
+
+        // Подключение к комнате в Firestore
+        function joinMultiplayerRoom(newRoomId) {
+            state.roomId = (newRoomId || 'ARENA-1').trim().toUpperCase();
+            document.getElementById('hud-room-name').textContent = state.roomId;
+
+            if (!db || !currentUser) return;
+
+            if (unsubscribeRoom) {
+                unsubscribeRoom();
+                unsubscribeRoom = null;
+            }
+
+            // Удаляем старые модели удаленных игроков при смене комнаты
+            Object.keys(remotePlayers).forEach(uid => removeRemotePlayerMesh(uid));
+
+            const colName = getRoomCollectionName(state.roomId);
+            // ПРАВИЛО 1 и ПРАВИЛО 2: Строгий путь без составных запросов
+            const colRef = collection(db, 'artifacts', appId, 'public', 'data', colName);
+
+            unsubscribeRoom = onSnapshot(
+                colRef,
+                (snapshot) => {
+                    const now = Date.now();
+                    const seenIds = new Set();
+
+                    snapshot.forEach((docSnap) => {
+                        const data = docSnap.data();
+                        const uid = docSnap.id;
+                        if (!data) return;
+
+                        // Если это наш собственный документ — проверяем, не нанес ли нам урон другой игрок
+                        if (uid === currentUser.uid) {
+                            if (data.damageToken && data.damageToken !== state.lastProcessedDamageToken) {
+                                state.lastProcessedDamageToken = data.damageToken;
+                                applyDamageToLocalPlayer(data.damageAmount || 22, data.damagedBy || 'Соперник');
+                            }
+                            return;
+                        }
+
+                        // Игнорируем неактивных игроков (вышедших более 15 секунд назад)
+                        if (now - (data.updatedAt || 0) > 15000) {
+                            removeRemotePlayerMesh(uid);
+                            return;
+                        }
+
+                        seenIds.add(uid);
+                        updateOrCreateRemotePlayer(uid, data);
+                    });
+
+                    // Очищаем отключившихся
+                    Object.keys(remotePlayers).forEach((uid) => {
+                        if (!seenIds.has(uid)) {
+                            removeRemotePlayerMesh(uid);
+                        }
+                    });
+
+                    updateScoreboardUI();
+                },
+                (err) => {
+                    console.error('Ошибка чтения комнаты Firestore:', err);
+                }
+            );
+
+            // Периодическая отправка наших координат
+            if (syncInterval) clearInterval(syncInterval);
+            syncInterval = setInterval(() => {
+                broadcastLocalPlayerState();
+            }, 140);
+
+            broadcastLocalPlayerState();
+        }
+
+        // Отправка состояния локального игрока в Firestore
+        async function broadcastLocalPlayerState(extraFields = {}) {
+            if (!db || !currentUser) return;
+            try {
+                const colName = getRoomCollectionName(state.roomId);
+                const playerDocRef = doc(db, 'artifacts', appId, 'public', 'data', colName, currentUser.uid);
+
+                const payload = {
+                    uid: currentUser.uid,
+                    name: state.nickname,
+                    x: Number(camera.position.x.toFixed(2)),
+                    y: Number(camera.position.y.toFixed(2)),
+                    z: Number(camera.position.z.toFixed(2)),
+                    yaw: Number(playerYaw.toFixed(3)),
+                    hp: state.hp,
+                    kills: state.kills,
+                    deaths: state.deaths,
+                    color: state.color,
+                    lastShotTime: state.lastShotTime,
+                    shotTargetPos: state.shotTargetPos,
+                    updatedAt: Date.now(),
+                    ...extraFields
+                };
+
+                await setDoc(playerDocRef, payload, { merge: true });
+            } catch (e) {
+                // Игнорируем разовые сетевые задержки
+            }
+        }
+
+        // Отправка урона другому реальному игроку по сети
+        async function sendNetworkDamage(targetUid, damageAmount) {
+            if (!db || !currentUser) return;
+            try {
+                const colName = getRoomCollectionName(state.roomId);
+                const targetDocRef = doc(db, 'artifacts', appId, 'public', 'data', colName, targetUid);
+                await setDoc(targetDocRef, {
+                    damageToken: `${currentUser.uid}_${Date.now()}_${Math.random()}`,
+                    damageAmount: damageAmount,
+                    damagedBy: state.nickname
+                }, { merge: true });
+            } catch (e) {}
+        }
+
+        // ==========================================
+        // 3. THREE.JS 3D СЦЕНА, АРЕНА И ФИЗИКА
+        // ==========================================
+        const canvas = document.getElementById('game-canvas');
+        const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x050814);
+        scene.fog = new THREE.FogExp2(0x050814, 0.012);
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 200);
+        const PLAYER_EYE_HEIGHT = 1.7;
+        camera.position.set(0, PLAYER_EYE_HEIGHT, 18);
+        scene.add(camera);
+
+        // Освещение арены
+        const ambientLight = new THREE.AmbientLight(0x38bdf8, 0.45);
+        scene.add(ambientLight);
+
+        const dirLight = new THREE.DirectionalLight(0xe0f2fe, 0.85);
+        dirLight.position.set(25, 45, 20);
+        dirLight.castShadow = true;
+        dirLight.shadow.mapSize.width = 1024;
+        dirLight.shadow.mapSize.height = 1024;
+        scene.add(dirLight);
+
+        const centerPointLight = new THREE.PointLight(0x00f3ff, 1.4, 45);
+        centerPointLight.position.set(0, 8, 0);
+        scene.add(centerPointLight);
+
+        // Массив коллайдеров препятствий для физики и проверки видимости
+        const arenaColliders = []; // { minX, maxX, minY, maxY, minZ, maxZ, mesh }
+        const shootableObstacleMeshes = [];
+
+        // Генерация процедурной киберпанк-сетки для пола
+        function createCyberGridTexture() {
+            const c = document.createElement('canvas');
+            c.width = 256;
+            c.height = 256;
+            const ctx = c.getContext('2d');
+            ctx.fillStyle = '#070b19';
+            ctx.fillRect(0, 0, 256, 256);
+            ctx.strokeStyle = 'rgba(0, 243, 255, 0.28)';
+            ctx.lineWidth = 3;
+            ctx.strokeRect(0, 0, 256, 256);
+            ctx.strokeStyle = 'rgba(56, 189, 248, 0.08)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(128, 0); ctx.lineTo(128, 256);
+            ctx.moveTo(0, 128); ctx.lineTo(256, 128);
+            ctx.stroke();
+
+            const tex = new THREE.CanvasTexture(c);
+            tex.wrapS = THREE.RepeatWrapping;
+            tex.wrapT = THREE.RepeatWrapping;
+            tex.repeat.set(36, 36);
+            return tex;
+        }
+
+        // Построение кибер-арены
+        function buildCyberArena() {
+            // Пол
+            const floorGeo = new THREE.PlaneGeometry(72, 72);
+            const floorMat = new THREE.MeshStandardMaterial({
+                map: createCyberGridTexture(),
+                roughness: 0.4,
+                metalness: 0.3
+            });
+            const floor = new THREE.Mesh(floorGeo, floorMat);
+            floor.rotation.x = -Math.PI / 2;
+            floor.receiveShadow = true;
+            scene.add(floor);
+            shootableObstacleMeshes.push(floor);
+
+            // Функция добавления блока с коллизией
+            function addBlock(x, y, z, w, h, d, colorHex = 0x0f172a, edgeHex = 0x00f3ff) {
+                const geo = new THREE.BoxGeometry(w, h, d);
+                const mat = new THREE.MeshStandardMaterial({
+                    color: colorHex,
+                    roughness: 0.35,
+                    metalness: 0.6
+                });
+                const mesh = new THREE.Mesh(geo, mat);
+                mesh.position.set(x, y, z);
+                mesh.castShadow = true;
+                mesh.receiveShadow = true;
+
+                // Неоновая окантовка граней
+                const edges = new THREE.EdgesGeometry(geo);
+                const lineMat = new THREE.LineBasicMaterial({ color: edgeHex, transparent: true, opacity: 0.65 });
+                const wireframe = new THREE.LineSegments(edges, lineMat);
+                mesh.add(wireframe);
+
+                scene.add(mesh);
+                shootableObstacleMeshes.push(mesh);
+
+                arenaColliders.push({
+                    minX: x - w / 2,
+                    maxX: x + w / 2,
+                    minY: y - h / 2,
+                    maxY: y + h / 2,
+                    minZ: z - d / 2,
+                    maxZ: z + d / 2,
+                    mesh
+                });
+            }
+
+            // Внешние стены арены
+            addBlock(0, 4, -36, 72, 8, 2, 0x090d1a, 0x06b6d4);
+            addBlock(0, 4, 36, 72, 8, 2, 0x090d1a, 0x06b6d4);
+            addBlock(-36, 4, 0, 2, 8, 72, 0x090d1a, 0x06b6d4);
+            addBlock(36, 4, 0, 2, 8, 72, 0x090d1a, 0x06b6d4);
+
+            // Центральный энергетический бастион и подиум
+            addBlock(0, 0.6, 0, 10, 1.2, 10, 0x1e293b, 0x00f3ff);
+            addBlock(0, 3.2, 0, 2.5, 4.0, 2.5, 0x0f172a, 0xf43f5e);
+
+            // Ступеньки на центральный подиум
+            addBlock(0, 0.3, 5.8, 4, 0.6, 1.6, 0x1e293b, 0x38bdf8);
+            addBlock(0, 0.3, -5.8, 4, 0.6, 1.6, 0x1e293b, 0x38bdf8);
+
+            // Четыре угловых бункера / колонны для укрытия
+            const pillars = [
+                [-14, -14], [14, -14], [-14, 14], [14, 14]
+            ];
+            pillars.forEach(([px, pz]) => {
+                addBlock(px, 2.5, pz, 4, 5, 4, 0x111827, 0x00f3ff);
+                // Тактические ящики рядом (на них можно запрыгивать)
+                addBlock(px + (px > 0 ? -3.2 : 3.2), 0.75, pz, 1.8, 1.5, 1.8, 0x1e1b4b, 0xa855f7);
+            });
+
+            // Боковые длинные стены-укрытия
+            addBlock(-22, 1.6, 0, 2, 3.2, 12, 0x0f172a, 0x22d3ee);
+            addBlock(22, 1.6, 0, 2, 3.2, 12, 0x0f172a, 0x22d3ee);
+            addBlock(0, 1.6, -22, 12, 3.2, 2, 0x0f172a, 0xf43f5e);
+            addBlock(0, 1.6, 22, 12, 3.2, 2, 0x0f172a, 0xf43f5e);
+        }
+        buildCyberArena();
+
+        // ==========================================
+        // 4. 3D МОДЕЛЬ ОРУЖИЯ В РУКАХ ИГРОКА
+        // ==========================================
+        const weaponGroup = new THREE.Group();
+        function buildFirstPersonWeapon() {
+            const bodyGeo = new THREE.BoxGeometry(0.12, 0.16, 0.65);
+            const bodyMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.8, roughness: 0.2 });
+            const body = new THREE.Mesh(bodyGeo, bodyMat);
+
+            const barrelGeo = new THREE.CylinderGeometry(0.025, 0.025, 0.55, 12);
+            barrelGeo.rotateX(Math.PI / 2);
+            const barrelMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, metalness: 0.9, roughness: 0.2 });
+            const barrel = new THREE.Mesh(barrelGeo, barrelMat);
+            barrel.position.set(0, 0.04, -0.35);
+
+            // Светящаяся неоновая шина на корпусе оружия
+            const coreGeo = new THREE.BoxGeometry(0.13, 0.035, 0.42);
+            const coreMat = new THREE.MeshBasicMaterial({ color: 0x00f3ff });
+            const core = new THREE.Mesh(coreGeo, coreMat);
+            core.position.set(0, 0.03, -0.05);
+
+            // Коллиматорный прицел на оружии
+            const scopeGeo = new THREE.BoxGeometry(0.07, 0.06, 0.14);
+            const scope = new THREE.Mesh(scopeGeo, bodyMat);
+            scope.position.set(0, 0.11, -0.05);
+
+            // Вспышка выстрела (Muzzle Flash)
+            const flashGeo = new THREE.SphereGeometry(0.09, 8, 8);
+            const flashMat = new THREE.MeshBasicMaterial({ color: 0x00f3ff, transparent: true, opacity: 0 });
+            const muzzleFlash = new THREE.Mesh(flashGeo, flashMat);
+            muzzleFlash.position.set(0, 0.04, -0.68);
+            weaponGroup.userData.muzzleFlash = muzzleFlash;
+
+            weaponGroup.add(body, barrel, core, scope, muzzleFlash);
+            weaponGroup.position.set(0.28, -0.25, -0.48);
+            camera.add(weaponGroup);
+        }
+        buildFirstPersonWeapon();
+
+        // Создание 3D лазерного луча при выстреле
+        const activeLaserBeams = [];
+        function spawnLaserBeam(startVec, endVec, colorHex = 0x00f3ff) {
+            const points = [startVec.clone(), endVec.clone()];
+            const geo = new THREE.BufferGeometry().setFromPoints(points);
+            const mat = new THREE.LineBasicMaterial({ color: colorHex, transparent: true, opacity: 0.95 });
+            const line = new THREE.Line(geo, mat);
+            scene.add(line);
+
+            // Вспышка искр в точке попадания
+            const sparkGeo = new THREE.SphereGeometry(0.16, 8, 8);
+            const sparkMat = new THREE.MeshBasicMaterial({ color: colorHex, transparent: true, opacity: 0.9 });
+            const spark = new THREE.Mesh(sparkGeo, sparkMat);
+            spark.position.copy(endVec);
+            scene.add(spark);
+
+            activeLaserBeams.push({ line, spark, createdAt: performance.now() });
+        }
+
+        // ==========================================
+        // 5. МОДЕЛИ ДРУГИХ ИГРОКОВ И ИИ-БОТОВ
+        // ==========================================
+        const remotePlayers = {}; // uid -> { mesh, nameSprite, hpBarSprite, data, targetPos, targetYaw }
+        const aiBots = [];
+
+        // Создание Canvas-таблички с именем и полоской HP над головой
+        function createOverheadLabelCanvas() {
+            const c = document.createElement('canvas');
+            c.width = 256;
+            c.height = 80;
+            const tex = new THREE.CanvasTexture(c);
+            const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
+            const sprite = new THREE.Sprite(mat);
+            sprite.scale.set(2.2, 0.7, 1);
+            sprite.position.set(0, 2.25, 0);
+            sprite.userData = { canvas: c, ctx: c.getContext('2d'), texture: tex };
+            return sprite;
+        }
+
+        function updateOverheadLabel(sprite, name, hp, badgeColor = '#00f3ff') {
+            const { canvas: c, ctx, texture } = sprite.userData;
+            ctx.clearRect(0, 0, c.width, c.height);
+
+            // Фон плашки
+            ctx.fillStyle = 'rgba(9, 13, 26, 0.78)';
+            ctx.fillRect(18, 8, 220, 56);
+            ctx.strokeStyle = badgeColor;
+            ctx.lineWidth = 2;
+            ctx.strokeRect(18, 8, 220, 56);
+
+            // Никнейм
+            ctx.font = 'bold 20px Inter, sans-serif';
+            ctx.fillStyle = '#ffffff';
+            ctx.textAlign = 'center';
+            ctx.fillText(name.slice(0, 15), 128, 33);
+
+            // Полоска здоровья
+            const barW = 190;
+            const hpRatio = Math.max(0, Math.min(1, hp / 100));
+            ctx.fillStyle = '#1e293b';
+            ctx.fillRect(33, 44, barW, 12);
+            ctx.fillStyle = hpRatio > 0.4 ? '#10b981' : '#f43f5e';
+            ctx.fillRect(33, 44, barW * hpRatio, 12);
+
+            texture.needsUpdate = true;
+        }
+
+        // Создание 3D-модели кибер-бойца (используется и для онлайн-игроков, и для ботов)
+        function createCharacterMesh(accentHex = 0x00f3ff, entityId = '', isBot = false) {
+            const group = new THREE.Group();
+
+            const armorMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.3, metalness: 0.7 });
+            const neonMat = new THREE.MeshBasicMaterial({ color: accentHex });
+
+            // Торс
+            const torso = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.95, 0.45), armorMat);
+            torso.position.y = 1.05;
+            torso.castShadow = true;
+
+            // Неоновый нагрудник
+            const chestPlate = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.35, 0.48), neonMat);
+            chestPlate.position.y = 1.15;
+
+            // Голова / Шлем
+            const head = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.46, 0.46), armorMat);
+            head.position.y = 1.82;
+            head.castShadow = true;
+
+            // Светящийся визор шлема (показывает куда смотрит персонаж)
+            const visor = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.14, 0.06), neonMat);
+            visor.position.set(0, 1.84, -0.24);
+
+            // Оружие в руках персонажа
+            const gun = new THREE.Mesh(
+                new THREE.BoxGeometry(0.12, 0.14, 0.7),
+                new THREE.MeshStandardMaterial({ color: 0x0f172a })
+            );
+            gun.position.set(0.42, 1.15, -0.35);
+
+            // Ноги
+            const leftLeg = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.6, 0.32), armorMat);
+            leftLeg.position.set(-0.2, 0.3, 0);
+            const rightLeg = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.6, 0.32), armorMat);
+            rightLeg.position.set(0.2, 0.3, 0);
+
+            // Хитбокс для удобного попадания Raycaster-ом
+            const hitbox = new THREE.Mesh(
+                new THREE.BoxGeometry(0.95, 2.1, 0.95),
+                new THREE.MeshBasicMaterial({ visible: false })
+            );
+            hitbox.position.y = 1.05;
+            hitbox.userData = { isCharacterHitbox: true, entityId, isBot };
+
+            head.userData = { isCharacterHitbox: true, entityId, isBot, isHeadshot: true };
+            torso.userData = { isCharacterHitbox: true, entityId, isBot };
+
+            const labelSprite = createOverheadLabelCanvas();
+
+            group.add(torso, chestPlate, head, visor, gun, leftLeg, rightLeg, hitbox, labelSprite);
+            group.userData = { hitbox, head, torso, labelSprite, leftLeg, rightLeg };
+            return group;
+        }
+
+        // Обновление или создание удаленного игрока из Firestore
+        function updateOrCreateRemotePlayer(uid, data) {
+            let rp = remotePlayers[uid];
+            if (!rp) {
+                const mesh = createCharacterMesh(0x00f3ff, uid, false);
+                scene.add(mesh);
+                rp = {
+                    uid,
+                    mesh,
+                    data,
+                    targetPos: new THREE.Vector3(data.x || 0, (data.y || PLAYER_EYE_HEIGHT) - PLAYER_EYE_HEIGHT, data.z || 0),
+                    targetYaw: data.yaw || 0,
+                    lastRenderedShot: data.lastShotTime || 0
+                };
+                mesh.position.copy(rp.targetPos);
+                remotePlayers[uid] = rp;
+            }
+
+            rp.data = data;
+            rp.targetPos.set(data.x || 0, (data.y || PLAYER_EYE_HEIGHT) - PLAYER_EYE_HEIGHT, data.z || 0);
+            rp.targetYaw = data.yaw || 0;
+
+            updateOverheadLabel(rp.mesh.userData.labelSprite, data.name || 'Игрок', data.hp ?? 100, '#00f3ff');
+
+            // Если удаленный игрок только что выстрелил — рисуем его лазерный луч и звук
+            if (data.lastShotTime && data.lastShotTime !== rp.lastRenderedShot) {
+                rp.lastRenderedShot = data.lastShotTime;
+                if (data.shotTargetPos && Array.isArray(data.shotTargetPos)) {
+                    const startVec = rp.mesh.position.clone().add(new THREE.Vector3(0, 1.35, 0));
+                    const endVec = new THREE.Vector3(data.shotTargetPos[0], data.shotTargetPos[1], data.shotTargetPos[2]);
+                    spawnLaserBeam(startVec, endVec, 0x38bdf8);
+                    sfx.playLaser(true);
+                }
+            }
+        }
+
+        function removeRemotePlayerMesh(uid) {
+            const rp = remotePlayers[uid];
+            if (rp) {
+                scene.remove(rp.mesh);
+                delete remotePlayers[uid];
+            }
+        }
+
+        // ==========================================
+        // 6. СИСТЕМА ИИ-БОТОВ ДЛЯ ОДИНОЧНОЙ И КОМАНДНОЙ ИГРЫ
+        // ==========================================
+        const BOT_NAMES = ['КиберОхотник [БОТ]', 'Титан-9 [БОТ]', 'Фантом-X [БОТ]', 'Валькирия [БОТ]', 'Спектр [БОТ]'];
+        const SPAWN_POINTS = [
+            new THREE.Vector3(-26, 0, -26),
+            new THREE.Vector3(26, 0, -26),
+            new THREE.Vector3(-26, 0, 26),
+            new THREE.Vector3(26, 0, 26),
+            new THREE.Vector3(0, 0, -29),
+            new THREE.Vector3(-29, 0, 0),
+            new THREE.Vector3(29, 0, 0)
+        ];
+
+        function syncBotsCount(targetCount) {
+            state.desiredBotsCount = targetCount;
+            document.getElementById('bots-count-label').textContent = `Боты: ${targetCount}`;
+            document.getElementById('select-bots').value = String(targetCount);
+
+            // Удаляем лишних ботов
+            while (aiBots.length > targetCount) {
+                const removed = aiBots.pop();
+                scene.remove(removed.mesh);
+            }
+
+            // Добавляем недостающих ботов
+            while (aiBots.length < targetCount) {
+                const idx = aiBots.length;
+                const botId = `bot_${idx}`;
+                const botName = BOT_NAMES[idx % BOT_NAMES.length];
+                const mesh = createCharacterMesh(0xf43f5e, botId, true);
+                const spawn = SPAWN_POINTS[idx % SPAWN_POINTS.length];
+                mesh.position.copy(spawn);
+                scene.add(mesh);
+
+                const botObj = {
+                    id: botId,
+                    name: botName,
+                    mesh,
+                    hp: 100,
+                    kills: 0,
+                    deaths: 0,
+                    patrolTarget: SPAWN_POINTS[(idx + 2) % SPAWN_POINTS.length].clone(),
+                    lastShotAt: performance.now() + Math.random() * 1500,
+                    walkPhase: Math.random() * 10
+                };
+                updateOverheadLabel(mesh.userData.labelSprite, botObj.name, botObj.hp, '#f43f5e');
+                aiBots.push(botObj);
+            }
+            updateScoreboardUI();
+        }
+
+        function updateAIBots(dt, now) {
+            aiBots.forEach((bot) => {
+                // Движение к патрульной точке
+                const pos = bot.mesh.position;
+                const dirToTarget = new THREE.Vector3().subVectors(bot.patrolTarget, pos);
+                dirToTarget.y = 0;
+
+                if (dirToTarget.length() < 2.0) {
+                    const randSpawn = SPAWN_POINTS[Math.floor(Math.random() * SPAWN_POINTS.length)];
+                    bot.patrolTarget.copy(randSpawn).add(new THREE.Vector3((Math.random() - 0.5) * 10, 0, (Math.random() - 0.5) * 10));
+                } else {
+                    dirToTarget.normalize();
+                    const speed = 4.6;
+                    const nextX = pos.x + dirToTarget.x * speed * dt;
+                    const nextZ = pos.z + dirToTarget.z * speed * dt;
+
+                    if (!checkHorizontalCollision(nextX, pos.y + 1.0, nextZ, 0.55)) {
+                        pos.x = nextX;
+                        pos.z = nextZ;
+                    } else {
+                        // Если бот уперся в стену, выбираем новую точку маршрута
+                        const randSpawn = SPAWN_POINTS[Math.floor(Math.random() * SPAWN_POINTS.length)];
+                        bot.patrolTarget.copy(randSpawn);
+                    }
+                }
+
+                // Анимация шагов бота
+                bot.walkPhase += dt * 8;
+                bot.mesh.userData.leftLeg.position.z = Math.sin(bot.walkPhase) * 0.16;
+                bot.mesh.userData.rightLeg.position.z = -Math.sin(bot.walkPhase) * 0.16;
+
+                // Поворот лицом к игроку, если игрок близко, иначе по ходу движения
+                const toPlayer = new THREE.Vector3().subVectors(camera.position, pos);
+                const distToPlayer = toPlayer.length();
+
+                if (distToPlayer < 32 && state.isPlaying) {
+                    const desiredYaw = Math.atan2(-toPlayer.x, -toPlayer.z);
+                    bot.mesh.rotation.y = desiredYaw;
+
+                    // Стрельба бота по игроку с проверкой прямой видимости
+                    if (now - bot.lastShotAt > 1750) {
+                        bot.lastShotAt = now + Math.random() * 500;
+                        const botEye = pos.clone().add(new THREE.Vector3(0, 1.5, 0));
+                        const rayDir = new THREE.Vector3().subVectors(camera.position, botEye).normalize();
+                        const ray = new THREE.Raycaster(botEye, rayDir, 0.5, distToPlayer);
+                        const obsHits = ray.intersectObjects(shootableObstacleMeshes, false);
+
+                        // Если между ботом и игроком нет стены
+                        if (obsHits.length === 0) {
+                            const spread = new THREE.Vector3(
+                                (Math.random() - 0.5) * 2.2,
+                                (Math.random() - 0.5) * 1.6,
+                                (Math.random() - 0.5) * 2.2
+                            );
+                            const shotEnd = camera.position.clone().add(spread);
+                            spawnLaserBeam(botEye, shotEnd, 0xf43f5e);
+                            sfx.playLaser(true);
+
+                            // Вероятность попадания бота зависит от дистанции
+                            const hitChance = Math.max(0.18, 0.55 - distToPlayer / 65);
+                            if (Math.random() < hitChance) {
+                                applyDamageToLocalPlayer(12, bot.name);
+                            }
+                        }
+                    }
+                } else {
+                    const moveYaw = Math.atan2(-dirToTarget.x, -dirToTarget.z);
+                    bot.mesh.rotation.y = moveYaw;
+                }
+            });
+        }
+
+        // ==========================================
+        // 7. УПРАВЛЕНИЕ ОТ ПЕРВОГО ЛИЦА, СТРЕЛЬБА И УРОН
+        // ==========================================
+        let playerYaw = 0;
+        let playerPitch = 0;
+        const playerVelocity = new THREE.Vector3();
+        let isGrounded = true;
+        let isAimingADS = false;
+        let weaponRecoilOffset = 0;
+        let walkBobTimer = 0;
+
+        const keys = { w: false, a: false, s: false, d: false, space: false, shift: false };
+
+        window.addEventListener('keydown', (e) => {
+            if (document.activeElement && ['INPUT', 'SELECT'].includes(document.activeElement.tagName)) return;
+            const code = e.code;
+            if (code === 'KeyW' || code === 'ArrowUp') keys.w = true;
+            if (code === 'KeyS' || code === 'ArrowDown') keys.s = true;
+            if (code === 'KeyA' || code === 'ArrowLeft') keys.a = true;
+            if (code === 'KeyD' || code === 'ArrowRight') keys.d = true;
+            if (code === 'Space') keys.space = true;
+            if (code === 'ShiftLeft' || code === 'ShiftRight') keys.shift = true;
+            if (code === 'KeyR') triggerReload();
+        });
+
+        window.addEventListener('keyup', (e) => {
+            const code = e.code;
+            if (code === 'KeyW' || code === 'ArrowUp') keys.w = false;
+            if (code === 'KeyS' || code === 'ArrowDown') keys.s = false;
+            if (code === 'KeyA' || code === 'ArrowLeft') keys.a = false;
+            if (code === 'KeyD' || code === 'ArrowRight') keys.d = false;
+            if (code === 'Space') keys.space = false;
+            if (code === 'ShiftLeft' || code === 'ShiftRight') keys.shift = false;
+        });
+
+        // Вращение камеры мышью (Pointer Lock)
+        document.addEventListener('mousemove', (e) => {
+            if (document.pointerLockElement !== canvas) return;
+            const sensitivity = isAimingADS ? 0.0012 : 0.0022;
+            playerYaw -= e.movementX * sensitivity;
+            playerPitch -= e.movementY * sensitivity;
+            const maxPitch = Math.PI / 2 - 0.08;
+            playerPitch = Math.max(-maxPitch, Math.min(maxPitch, playerPitch));
+        });
+
+        // Стрельба и Прицеливание (ЛКМ и ПКМ)
+        canvas.addEventListener('mousedown', (e) => {
+            if (document.pointerLockElement !== canvas) {
+                if (state.isPlaying) {
+                    canvas.requestPointerLock?.();
+                }
+                return;
+            }
+            if (e.button === 0) {
+                fireWeapon();
+            } else if (e.button === 2) {
+                isAimingADS = true;
+            }
+        });
+
+        window.addEventListener('mouseup', (e) => {
+            if (e.button === 2) isAimingADS = false;
+        });
+        window.addEventListener('contextmenu', (e) => e.preventDefault());
+
+        // Отслеживание выхода из Pointer Lock (например, по нажатию ESC)
+        document.addEventListener('pointerlockchange', () => {
+            if (document.pointerLockElement === canvas) {
+                state.isPlaying = true;
+                document.getElementById('lobby-modal').classList.add('hidden');
+            } else {
+                // Если не открыта инструкция по хостингу — показываем лобби/паузу
+                if (document.getElementById('guide-modal').classList.contains('hidden')) {
+                    state.isPlaying = false;
+                    document.getElementById('lobby-modal').classList.remove('hidden');
+                }
+            }
+        });
+
+        // Перезарядка оружия
+        function triggerReload() {
+            if (state.isReloading || state.ammo === state.maxAmmo) return;
+            state.isReloading = true;
+            sfx.playReload();
+            showCenterBanner('ПЕРЕЗАРЯДКА...', 'Замена энергетической ячейки', 1100);
+            document.getElementById('reload-hint').textContent = 'Перезарядка...';
+
+            setTimeout(() => {
+                state.ammo = state.maxAmmo;
+                state.isReloading = false;
+                document.getElementById('hud-ammo-current').textContent = state.ammo;
+                document.getElementById('reload-hint').textContent = '[R] Перезарядка';
+            }, 1100);
+        }
+
+        // Выстрел из оружия игрока
+        const raycaster = new THREE.Raycaster();
+        function fireWeapon() {
+            if (!state.isPlaying || state.isReloading) return;
+            const now = performance.now();
+            if (now - state.lastShotTime < 135) return; // Скорострельность
+
+            if (state.ammo <= 0) {
+                triggerReload();
+                return;
+            }
+
+            state.ammo--;
+            state.lastShotTime = Date.now();
+            document.getElementById('hud-ammo-current').textContent = state.ammo;
+
+            sfx.playLaser(false);
+            weaponRecoilOffset = 0.14;
+
+            // Вспышка на дуле
+            const flash = weaponGroup.userData.muzzleFlash;
+            if (flash) {
+                flash.material.opacity = 0.95;
+                setTimeout(() => { flash.material.opacity = 0; }, 55);
+            }
+
+            // Расширение прицела при выстреле
+            expandCrosshairBriefly();
+
+            // Собираем все цели для проверки попадания (препятствия + боты + онлайн-игроки)
+            const targetMeshes = [...shootableObstacleMeshes];
+            aiBots.forEach(b => {
+                targetMeshes.push(b.mesh.userData.hitbox, b.mesh.userData.head, b.mesh.userData.torso);
+            });
+            Object.values(remotePlayers).forEach(rp => {
+                targetMeshes.push(rp.mesh.userData.hitbox, rp.mesh.userData.head, rp.mesh.userData.torso);
+            });
+
+            raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+            const intersects = raycaster.intersectObjects(targetMeshes, false);
+
+            let endPoint = new THREE.Vector3();
+            raycaster.ray.at(80, endPoint);
+
+            if (intersects.length > 0) {
+                const hit = intersects[0];
+                endPoint.copy(hit.point);
+
+                const uData = hit.object.userData;
+                if (uData && uData.isCharacterHitbox) {
+                    const dmg = uData.isHeadshot ? 50 : 25;
+                    triggerHitMarkerUI(uData.isHeadshot);
+
+                    if (uData.isBot) {
+                        damageAIBot(uData.entityId, dmg, uData.isHeadshot);
+                    } else {
+                        damageRemotePlayer(uData.entityId, dmg);
+                    }
+                }
+            }
+
+            // Рисуем лазерный луч из ствола оружия в точку попадания
+            const barrelWorldPos = new THREE.Vector3();
+            weaponGroup.userData.muzzleFlash.getWorldPosition(barrelWorldPos);
+            spawnLaserBeam(barrelWorldPos, endPoint, 0x00f3ff);
+
+            state.shotTargetPos = [
+                Number(endPoint.x.toFixed(2)),
+                Number(endPoint.y.toFixed(2)),
+                Number(endPoint.z.toFixed(2))
+            ];
+            broadcastLocalPlayerState();
+
+            if (state.ammo === 0) {
+                triggerReload();
+            }
+        }
+
+        // Нанесение урона ИИ-боту
+        function damageAIBot(botId, dmg, isHeadshot) {
+            const bot = aiBots.find(b => b.id === botId);
+            if (!bot) return;
+
+            bot.hp -= dmg;
+            if (bot.hp <= 0) {
+                state.kills++;
+                bot.deaths++;
+                sfx.playKill();
+                addKillFeedItem(state.nickname, bot.name, isHeadshot);
+
+                // Респавн бота в случайной точке
+                bot.hp = 100;
+                const sp = SPAWN_POINTS[Math.floor(Math.random() * SPAWN_POINTS.length)];
+                bot.mesh.position.copy(sp);
+                updateScoreboardUI();
+                broadcastLocalPlayerState();
+            }
+            updateOverheadLabel(bot.mesh.userData.labelSprite, bot.name, bot.hp, '#f43f5e');
+        }
+
+        // Нанесение урона реальному онлайн-игроку
+        function damageRemotePlayer(targetUid, dmg) {
+            const rp = remotePlayers[targetUid];
+            if (!rp) return;
+
+            sendNetworkDamage(targetUid, dmg);
+
+            // Оптимистичное обновление полоски HP над соперником
+            const predictedHp = Math.max(0, (rp.data.hp || 100) - dmg);
+            rp.data.hp = predictedHp;
+            updateOverheadLabel(rp.mesh.userData.labelSprite, rp.data.name || 'Игрок', predictedHp, '#00f3ff');
+
+            if (predictedHp <= 0) {
+                state.kills++;
+                sfx.playKill();
+                addKillFeedItem(state.nickname, rp.data.name || 'Игрок', dmg >= 50);
+                updateScoreboardUI();
+                broadcastLocalPlayerState();
+            }
+        }
+
+        // Получение урона локальным игроком
+        function applyDamageToLocalPlayer(amount, attackerName) {
+            if (state.hp <= 0) return;
+            state.hp = Math.max(0, state.hp - amount);
+            sfx.playHurt();
+            updateHealthHUD();
+
+            // Красная вспышка ранения
+            const overlay = document.getElementById('damage-overlay');
+            overlay.style.opacity = '1';
+            setTimeout(() => { overlay.style.opacity = '0'; }, 260);
+
+            if (state.hp <= 0) {
+                state.deaths++;
+                addKillFeedItem(attackerName, state.nickname, false);
+                respawnLocalPlayer(attackerName);
+            }
+            broadcastLocalPlayerState();
+        }
+
+        function respawnLocalPlayer(killerName) {
+            showCenterBanner('ВЫ БЫЛИ УСТРАНЕНЫ', `Ликвидировал: ${killerName} • Респавн на базе`, 2200);
+            const sp = SPAWN_POINTS[Math.floor(Math.random() * SPAWN_POINTS.length)];
+            camera.position.set(sp.x, PLAYER_EYE_HEIGHT, sp.z);
+            playerVelocity.set(0, 0, 0);
+            state.hp = 100;
+            state.ammo = state.maxAmmo;
+            updateHealthHUD();
+            document.getElementById('hud-ammo-current').textContent = state.ammo;
+            updateScoreboardUI();
+        }
+
+        // ==========================================
+        // 8. ОБНОВЛЕНИЕ HUD ИНТЕРФЕЙСА
+        // ==========================================
+        function updateHealthHUD() {
+            const hpText = document.getElementById('hud-hp-text');
+            const hpBar = document.getElementById('hud-hp-bar');
+            hpText.textContent = state.hp;
+            hpBar.style.width = `${state.hp}%`;
+
+            if (state.hp > 40) {
+                hpText.className = 'font-cyber text-2xl sm:text-3xl font-black text-emerald-400';
+                hpBar.className = 'h-full bg-gradient-to-r from-emerald-500 to-cyan-400 rounded-full transition-all duration-150';
+            } else {
+                hpText.className = 'font-cyber text-2xl sm:text-3xl font-black text-rose-500 animate-pulse';
+                hpBar.className = 'h-full bg-gradient-to-r from-rose-600 to-amber-500 rounded-full transition-all duration-150';
+            }
+        }
+
+        function triggerHitMarkerUI(isHeadshot) {
+            sfx.playHitMarker();
+            const hm = document.getElementById('hit-marker');
+            hm.style.opacity = '1';
+            hm.style.transform = isHeadshot ? 'scale(1.35)' : 'scale(1.0)';
+            setTimeout(() => { hm.style.opacity = '0'; }, 110);
+        }
+
+        function expandCrosshairBriefly() {
+            document.getElementById('ch-top').style.top = '-7px';
+            document.getElementById('ch-bottom').style.bottom = '-7px';
+            document.getElementById('ch-left').style.left = '-7px';
+            document.getElementById('ch-right').style.right = '-7px';
+            setTimeout(() => {
+                document.getElementById('ch-top').style.top = '-4px';
+                document.getElementById('ch-bottom').style.bottom = '-4px';
+                document.getElementById('ch-left').style.left = '-4px';
+                document.getElementById('ch-right').style.right = '-4px';
+            }, 85);
+        }
+
+        function addKillFeedItem(killer, victim, isHeadshot) {
+            const container = document.getElementById('killfeed-container');
+            const el = document.createElement('div');
+            el.className = 'cyber-card px-3 py-1.5 rounded-lg text-[11px] flex items-center gap-1.5 border border-cyan-500/30 animate-fade-in';
+            el.innerHTML = `
+                <span class="font-bold text-cyan-300">${killer}</span>
+                <i class="fa-solid ${isHeadshot ? 'fa-skull-crossbones text-rose-400' : 'fa-crosshairs text-slate-400'}"></i>
+                <span class="font-semibold text-rose-300">${victim}</span>
+            `;
+            container.prepend(el);
+            setTimeout(() => { el.remove(); }, 4500);
+        }
+
+        function showCenterBanner(title, subtitle, durationMs = 1800) {
+            const banner = document.getElementById('center-banner');
+            document.getElementById('center-banner-title').textContent = title;
+            document.getElementById('center-banner-sub').textContent = subtitle;
+            banner.classList.remove('hidden');
+            setTimeout(() => { banner.classList.add('hidden'); }, durationMs);
+        }
+
+        function updateScoreboardUI() {
+            const listEl = document.getElementById('scoreboard-list');
+            const rows = [];
+
+            // Локальный игрок
+            rows.push({
+                name: `${state.nickname} (Вы)`,
+                kills: state.kills,
+                deaths: state.deaths,
+                isMe: true,
+                isBot: false
+            });
+
+            // Онлайн-игроки
+            Object.values(remotePlayers).forEach(rp => {
+                rows.push({
+                    name: rp.data.name || 'Игрок',
+                    kills: rp.data.kills || 0,
+                    deaths: rp.data.deaths || 0,
+                    isMe: false,
+                    isBot: false
+                });
+            });
+
+            // ИИ-боты
+            aiBots.forEach(b => {
+                rows.push({
+                    name: b.name,
+                    kills: b.kills,
+                    deaths: b.deaths,
+                    isMe: false,
+                    isBot: true
+                });
+            });
+
+            // Сортировка в памяти по количеству фрагов (ПРАВИЛО 2)
+            rows.sort((a, b) => b.kills - a.kills);
+
+            listEl.innerHTML = rows.map(r => `
+                <div class="flex items-center justify-between px-2 py-1 rounded ${r.isMe ? 'bg-cyan-500/20 border border-cyan-500/40' : 'bg-slate-900/50'}">
+                    <span class="truncate max-w-[140px] ${r.isMe ? 'font-bold text-cyan-300' : r.isBot ? 'text-rose-300' : 'text-slate-200'}">
+                        ${r.name}
+                    </span>
+                    <span class="font-cyber font-bold text-slate-300">${r.kills} / ${r.deaths}</span>
+                </div>
+            `).join('');
+        }
+
+        // ==========================================
+        // 9. ФИЗИКА КОЛЛИЗИЙ И ГЛАВНЫЙ ЦИКЛ ИГРЫ
+        // ==========================================
+        function checkHorizontalCollision(x, feetY, z, radius = 0.45) {
+            for (const c of arenaColliders) {
+                // Проверяем пересечение по высоте с учетом ступенек
+                if (feetY + 1.6 > c.minY && feetY + 0.45 < c.maxY) {
+                    if (x + radius > c.minX && x - radius < c.maxX &&
+                        z + radius > c.minZ && z - radius < c.maxZ) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        function getFloorHeightAt(x, z, currentFeetY) {
+            let highestFloor = 0;
+            for (const c of arenaColliders) {
+                if (x + 0.35 > c.minX && x - 0.35 < c.maxX &&
+                    z + 0.35 > c.minZ && z - 0.35 < c.maxZ) {
+                    // Если мы выше крышки объекта или можем шагнуть на ступеньку высотой до 0.65м
+                    if (currentFeetY + 0.65 >= c.maxY && c.maxY > highestFloor) {
+                        highestFloor = c.maxY;
+                    }
+                }
+            }
+            return highestFloor;
+        }
+
+        let prevTime = performance.now();
+        function animateLoop() {
+            requestAnimationFrame(animateLoop);
+
+            const now = performance.now();
+            const dt = Math.min((now - prevTime) / 1000, 0.1);
+            prevTime = now;
+
+            // Обновление ориентации камеры
+            camera.rotation.order = 'YXZ';
+            camera.rotation.y = playerYaw;
+            camera.rotation.x = playerPitch;
+
+            // Плавный зум при прицеливании ПКМ
+            const targetFov = isAimingADS ? 48 : 75;
+            if (Math.abs(camera.fov - targetFov) > 0.2) {
+                camera.fov += (targetFov - camera.fov) * 12 * dt;
+                camera.updateProjectionMatrix();
+            }
+
+            // Перемещение игрока
+            if (state.isPlaying) {
+                const moveSpeed = keys.shift ? 11.5 : 7.5;
+                const forward = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), playerYaw);
+                const right = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), playerYaw);
+
+                const moveDir = new THREE.Vector3();
+                if (keys.w) moveDir.add(forward);
+                if (keys.s) moveDir.sub(forward);
+                if (keys.d) moveDir.add(right);
+                if (keys.a) moveDir.sub(right);
+                if (moveDir.lengthSq() > 0) moveDir.normalize();
+
+                const currentFeetY = camera.position.y - PLAYER_EYE_HEIGHT;
+                const nextX = camera.position.x + moveDir.x * moveSpeed * dt;
+                const nextZ = camera.position.z + moveDir.z * moveSpeed * dt;
+
+                if (!checkHorizontalCollision(nextX, currentFeetY, camera.position.z)) {
+                    camera.position.x = nextX;
+                }
+                if (!checkHorizontalCollision(camera.position.x, currentFeetY, nextZ)) {
+                    camera.position.z = nextZ;
+                }
+
+                // Прыжок и гравитация
+                if (keys.space && isGrounded) {
+                    playerVelocity.y = 8.4;
+                    isGrounded = false;
+                }
+                playerVelocity.y -= 21.0 * dt;
+                camera.position.y += playerVelocity.y * dt;
+
+                const groundY = getFloorHeightAt(camera.position.x, camera.position.z, camera.position.y - PLAYER_EYE_HEIGHT);
+                if (camera.position.y <= groundY + PLAYER_EYE_HEIGHT) {
+                    camera.position.y = groundY + PLAYER_EYE_HEIGHT;
+                    playerVelocity.y = 0;
+                    isGrounded = true;
+                }
+
+                // Покачивание оружия при ходьбе и возврат отдачи
+                if (moveDir.lengthSq() > 0 && isGrounded) {
+                    walkBobTimer += dt * (keys.shift ? 14 : 9);
+                } else {
+                    walkBobTimer = 0;
+                }
+            }
+
+            // Позиционирование 3D оружия в руках
+            weaponRecoilOffset = Math.max(0, weaponRecoilOffset - dt * 0.9);
+            const targetWepX = isAimingADS ? 0.0 : 0.28 + Math.cos(walkBobTimer) * 0.012;
+            const targetWepY = (isAimingADS ? -0.175 : -0.25) + Math.abs(Math.sin(walkBobTimer)) * 0.015;
+            const targetWepZ = (isAimingADS ? -0.35 : -0.48) + weaponRecoilOffset;
+
+            weaponGroup.position.x += (targetWepX - weaponGroup.position.x) * 15 * dt;
+            weaponGroup.position.y += (targetWepY - weaponGroup.position.y) * 15 * dt;
+            weaponGroup.position.z += (targetWepZ - weaponGroup.position.z) * 18 * dt;
+
+            // Плавная интерполяция онлайн-игроков
+            Object.values(remotePlayers).forEach((rp) => {
+                rp.mesh.position.lerp(rp.targetPos, Math.min(1, dt * 10));
+                rp.mesh.rotation.y = rp.targetYaw;
+            });
+
+            // Обновление ИИ-ботов
+            updateAIBots(dt, now);
+
+            // Очистка отработавших лазерных лучей
+            for (let i = activeLaserBeams.length - 1; i >= 0; i--) {
+                const b = activeLaserBeams[i];
+                const age = now - b.createdAt;
+                if (age > 110) {
+                    scene.remove(b.line);
+                    scene.remove(b.spark);
+                    b.line.geometry.dispose();
+                    b.line.material.dispose();
+                    activeLaserBeams.splice(i, 1);
+                } else {
+                    b.line.material.opacity = 1 - age / 110;
+                }
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        // ==========================================
+        // 10. ОБРАБОТЧИКИ UI КНОПОК И АДАПТИВНОСТИ
+        // ==========================================
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Кнопка "ВСТУПИТЬ В БОЙ"
+        document.getElementById('btn-start-game').addEventListener('click', () => {
+            sfx.init();
+            const nickInput = document.getElementById('input-nickname').value.trim();
+            const roomInput = document.getElementById('input-room').value.trim();
+            const botsVal = parseInt(document.getElementById('select-bots').value, 10);
+
+            if (nickInput) state.nickname = nickInput;
+            document.getElementById('hud-player-name').textContent = state.nickname;
+
+            syncBotsCount(botsVal);
+            if (roomInput && roomInput.toUpperCase() !== state.roomId) {
+                joinMultiplayerRoom(roomInput);
+            } else {
+                broadcastLocalPlayerState();
+            }
+
+            document.getElementById('lobby-modal').classList.add('hidden');
+            state.isPlaying = true;
+            canvas.requestPointerLock?.();
+        });
+
+        // Переключение количества ботов прямо из HUD
+        document.getElementById('btn-toggle-bots').addEventListener('click', () => {
+            const cycle = [0, 2, 3, 5];
+            const nextIdx = (cycle.indexOf(state.desiredBotsCount) + 1) % cycle.length;
+            syncBotsCount(cycle[nextIdx]);
+        });
+
+        // Открытие меню паузы
+        document.getElementById('btn-open-menu').addEventListener('click', () => {
+            document.exitPointerLock?.();
+            state.isPlaying = false;
+            document.getElementById('lobby-modal').classList.remove('hidden');
+        });
+
+        // Копирование ID комнаты в буфер обмена
+        document.getElementById('btn-copy-room').addEventListener('click', () => {
+            const temp = document.createElement('input');
+            temp.value = state.roomId;
+            document.body.appendChild(temp);
+            temp.select();
+            document.execCommand('copy');
+            temp.remove();
+            showCenterBanner('ID КОМНАТЫ СКОПИРОВАН', `Отправьте другу код: ${state.roomId}`, 1500);
+        });
+
+        // Модальное окно инструкции по хостингу
+        function openGuideModal() {
+            document.exitPointerLock?.();
+            state.isPlaying = false;
+            document.getElementById('guide-modal').classList.remove('hidden');
+        }
+        function closeGuideModal() {
+            document.getElementById('guide-modal').classList.add('hidden');
+        }
+        document.getElementById('btn-open-guide').addEventListener('click', openGuideModal);
+        document.getElementById('btn-lobby-guide').addEventListener('click', openGuideModal);
+        document.getElementById('btn-close-guide').addEventListener('click', closeGuideModal);
+        document.getElementById('btn-close-guide-bottom').addEventListener('click', closeGuideModal);
+
+        // Применение пользовательского конфига Firebase (для внешнего хостинга)
+        document.getElementById('btn-apply-firebase').addEventListener('click', () => {
+            const raw = document.getElementById('input-custom-firebase').value.trim();
+            const msgEl = document.getElementById('custom-firebase-msg');
+            try {
+                const parsed = JSON.parse(raw);
+                initFirebaseSystem(parsed);
+                msgEl.textContent = 'Собственный конфиг Firebase успешно применен!';
+                msgEl.className = 'text-[11px] text-emerald-400 mt-1 block';
+        // Поддержка сенсорных экранов (телефоны / планшеты) — зажатие кнопки ОГОНЬ стреляет очередью
+        if ('ontouchstart' in window) {
+            document.getElementById('mobile-controls').classList.remove('hidden');
+            document.getElementById('mobile-controls').classList.add('flex');
+            const shootBtn = document.getElementById('btn-mobile-shoot');
+            shootBtn.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                sfx.init();
+                isFiring = true;
+                fireWeapon();
+            });
+            shootBtn.addEventListener('touchend', (e) => {
+                e.preventDefault();
+                isFiring = false;
+            });
+            document.getElementById('btn-mobile-jump').addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                keys.space = true;
+                setTimeout(() => { keys.space = false; }, 150);
+            });
+            document.getElementById('btn-mobile-reload').addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                triggerReload();
+            });
+        }
+
+        // Очистка документа игрока при закрытии вкладки
+        window.addEventListener('beforeunload', () => {
+            if (db && currentUser) {
+                const colName = getRoomCollectionName(state.roomId);
+                deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', colName, currentUser.uid)).catch(() => {});
+            }
+        });
+
+        // Запуск при загрузке окна
+        window.onload = function () {
+            syncBotsCount(3);
+            initFirebaseSystem();
+            animateLoop();
+        };
+    </script>
+</body>
+</html>
